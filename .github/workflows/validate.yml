@@ -22,7 +22,8 @@ jobs:
       - run: pytest
       - run: node --check waha/run.mjs
       - run: node --check waha/control.mjs
-      - run: node --test waha/tests/control.test.mjs
+      - run: node --check waha/discovery.mjs
+      - run: node --test waha/tests/*.test.mjs
 
   app-lint:
     runs-on: ubuntu-latest

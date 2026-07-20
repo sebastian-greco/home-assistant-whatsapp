@@ -57,7 +57,7 @@ jobs:
             io.hass.type=app
             io.hass.name=WAHA for Home Assistant
             io.hass.description=Self-hosted WhatsApp API with a Home Assistant sidebar control panel
-            io.hass.url=https://github.com/sebastian-greco/ha-kapso-whatsapp
+            io.hass.url=https://github.com/sebastian-greco/home-assistant-whatsapp
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true

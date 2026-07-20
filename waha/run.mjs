@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 
+import { registerDiscoveryWithRetry } from "./discovery.mjs";
+
 const OPTIONS_PATH = process.env.OPTIONS_PATH || "/data/options.json";
 
 function fail(message) {
@@ -114,3 +116,16 @@ process.on("SIGINT", () => shutdown(0));
 
 start("/entrypoint.sh", [], "WAHA");
 start("node", ["/ha/control.mjs"], "control panel");
+
+registerDiscoveryWithRetry({
+  apiKey,
+  sessionName,
+})
+  .then((registered) => {
+    if (registered) {
+      console.log("[WAHA app] Published Home Assistant integration discovery");
+    }
+  })
+  .catch((error) => {
+    console.warn(`[WAHA app] Integration discovery failed: ${error.message}`);
+  });

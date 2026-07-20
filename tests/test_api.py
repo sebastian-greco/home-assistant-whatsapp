@@ -1,4 +1,4 @@
-"""Tests for the provider-independent Kapso API client."""
+"""Tests for the provider-independent WAHA API client."""
 
 from typing import Any
 
@@ -41,190 +41,107 @@ class FakeSession:
         return self.responses.pop(0)
 
 
+def make_client(session: FakeSession):
+    """Create a client with stable test connection values."""
+    return api.WahaClient(
+        session,
+        "secret-api-key",
+        "house",
+        base_url="http://waha.internal:3000/",
+    )
+
+
 @pytest.mark.asyncio
-async def test_get_phone_number() -> None:
-    """The account check uses the documented sender endpoint and fields."""
+async def test_get_server() -> None:
+    """The account check reads WAHA version metadata with its API key."""
     session = FakeSession(
         FakeResponse(
             200,
-            {
-                "id": "12345",
-                "verified_name": "Home",
-                "display_phone_number": "+39 333 123 4567",
-                "quality_rating": "GREEN",
-                "account_mode": "LIVE",
-                "messaging_limit_tier": "TIER_2K",
-            },
+            {"version": "2026.7.1", "engine": "GOWS", "tier": "PLUS"},
         )
     )
-    client = api.KapsoClient(session, "secret", "12345")
+    client = make_client(session)
 
-    phone = await client.async_get_phone_number()
+    server = await client.async_get_server()
 
-    assert phone.id == "12345"
-    assert phone.verified_name == "Home"
-    assert session.requests[0]["url"].endswith("/12345")
-    assert session.requests[0]["headers"]["X-API-Key"] == "secret"
-    assert "messaging_limit_tier" in session.requests[0]["params"]["fields"]
+    assert server.version == "2026.7.1"
+    assert server.engine == "GOWS"
+    assert session.requests[0]["url"] == "http://waha.internal:3000/api/version"
+    assert session.requests[0]["headers"]["X-Api-Key"] == "secret-api-key"
+
+
+@pytest.mark.asyncio
+async def test_get_configured_session() -> None:
+    """The configured session is resolved from the WAHA session list."""
+    session = FakeSession(
+        FakeResponse(
+            200,
+            [
+                {"name": "other", "status": "STOPPED"},
+                {
+                    "name": "house",
+                    "status": "WORKING",
+                    "me": {"id": "393330000000@c.us", "pushName": "Home"},
+                },
+            ],
+        )
+    )
+    client = make_client(session)
+
+    result = await client.async_get_session()
+
+    assert result.name == "house"
+    assert result.status == "WORKING"
+    assert result.push_name == "Home"
+    assert session.requests[0]["params"] == {"all": "true"}
+
+
+@pytest.mark.asyncio
+async def test_missing_session_has_dedicated_error() -> None:
+    """A typo in the session name produces a useful config-flow error."""
+    client = make_client(FakeSession(FakeResponse(200, [])))
+
+    with pytest.raises(api.WahaSessionNotFoundError, match="house"):
+        await client.async_get_session()
 
 
 @pytest.mark.asyncio
 async def test_send_text_payload() -> None:
-    """Free-form text uses Kapso's Meta-compatible payload."""
-    session = FakeSession(
-        FakeResponse(
-            200,
-            {
-                "contacts": [{"wa_id": "393331234567"}],
-                "messages": [{"id": "wamid.text"}],
-            },
-        )
+    """Free-form text uses WAHA's documented sendText payload."""
+    session = FakeSession(FakeResponse(200, {"key": {"id": "ABCD1234"}}))
+    client = make_client(session)
+
+    result = await client.async_send_text(
+        "+39 333 123 4567", "Door open", link_preview=False
     )
-    client = api.KapsoClient(session, "secret", "12345")
 
-    result = await client.async_send_text("393331234567", "Door open", preview_url=True)
-
-    assert result.id == "wamid.text"
+    assert result.id == "ABCD1234"
+    assert result.chat_id == "393331234567@c.us"
+    assert session.requests[0]["url"].endswith("/api/sendText")
     assert session.requests[0]["json"] == {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": "393331234567",
-        "type": "text",
-        "text": {"body": "Door open", "preview_url": True},
+        "session": "house",
+        "chatId": "393331234567@c.us",
+        "text": "Door open",
+        "linkPreview": False,
     }
 
 
 @pytest.mark.asyncio
-async def test_send_template_payload() -> None:
-    """Utility templates receive ordered positional body parameters."""
-    session = FakeSession(FakeResponse(200, {"messages": [{"id": "wamid.template"}]}))
-    client = api.KapsoClient(session, "secret", "12345")
-
-    await client.async_send_template(
-        "393331234567",
-        "ha_notification",
-        "en_US",
-        body_parameters=["Garage door", "10 minutes"],
-    )
-
-    assert session.requests[0]["json"]["template"] == {
-        "name": "ha_notification",
-        "language": {"code": "en_US"},
-        "components": [
-            {
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": "Garage door"},
-                    {"type": "text", "text": "10 minutes"},
-                ],
-            }
-        ],
-    }
-
-
-@pytest.mark.asyncio
-async def test_send_named_template_payload() -> None:
-    """Named parameters include Meta's required parameter_name field."""
-    session = FakeSession(FakeResponse(200, {"messages": [{"id": "wamid.named"}]}))
-    client = api.KapsoClient(session, "secret", "12345")
-
-    await client.async_send_template(
-        "393331234567",
-        "home_notification",
-        "en_US",
-        named_body_parameters={
-            "subject": "Electricity outage",
-            "notification_details": "Three grid-powered devices are offline.",
-        },
-    )
-
-    assert session.requests[0]["json"]["template"] == {
-        "name": "home_notification",
-        "language": {"code": "en_US"},
-        "components": [
-            {
-                "type": "body",
-                "parameters": [
-                    {
-                        "type": "text",
-                        "parameter_name": "subject",
-                        "text": "Electricity outage",
-                    },
-                    {
-                        "type": "text",
-                        "parameter_name": "notification_details",
-                        "text": "Three grid-powered devices are offline.",
-                    },
-                ],
-            }
-        ],
-    }
-
-
-@pytest.mark.asyncio
-async def test_template_parameter_formats_are_mutually_exclusive() -> None:
-    """A request cannot mix positional and named template parameters."""
-    session = FakeSession()
-    client = api.KapsoClient(session, "secret", "12345")
-
-    with pytest.raises(ValueError, match="cannot be combined"):
-        await client.async_send_template(
-            "393331234567",
-            "home_notification",
-            "en_US",
-            body_parameters=["Legacy value"],
-            named_body_parameters={"subject": "Named value"},
-        )
-
-    assert session.requests == []
-
-
-@pytest.mark.asyncio
-async def test_send_authentication_code_payload() -> None:
-    """OTP templates put the code in the body and COPY_CODE button."""
-    session = FakeSession(FakeResponse(200, {"messages": [{"id": "wamid.otp"}]}))
-    client = api.KapsoClient(session, "secret", "12345")
-
-    await client.async_send_authentication_code(
-        "393331234567", "auth_copy_code", "en_US", "123456"
-    )
-
-    components = session.requests[0]["json"]["template"]["components"]
-    assert components == [
-        {
-            "type": "body",
-            "parameters": [{"type": "text", "text": "123456"}],
-        },
-        {
-            "type": "button",
-            "sub_type": "otp",
-            "index": "0",
-            "parameters": [{"type": "text", "text": "123456"}],
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_conflict_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Kapso's one-message-in-flight conflict is retried once."""
-    monkeypatch.setattr(api, "CONFLICT_RETRY_DELAY_SECONDS", 0)
+async def test_gows_nested_message_id_is_supported() -> None:
+    """GOWS engine variants may nest the WhatsApp message ID."""
     session = FakeSession(
-        FakeResponse(409, {"error": "Another message is in-flight"}),
-        FakeResponse(200, {"messages": [{"id": "wamid.retry"}]}),
+        FakeResponse(200, {"_data": {"id": {"id": "GOWS-MESSAGE-ID"}}})
     )
-    client = api.KapsoClient(session, "secret", "12345")
+    result = await make_client(session).async_send_text("393331234567", "Hello")
 
-    result = await client.async_send_text("393331234567", "Hello")
-
-    assert result.id == "wamid.retry"
-    assert len(session.requests) == 2
+    assert result.id == "GOWS-MESSAGE-ID"
 
 
 @pytest.mark.asyncio
 async def test_authentication_error() -> None:
     """Authentication failures use a dedicated exception for HA reauth."""
-    session = FakeSession(FakeResponse(401, {"error": {"message": "Bad key"}}))
-    client = api.KapsoClient(session, "secret", "12345")
+    session = FakeSession(FakeResponse(401, {"message": "Bad API key"}))
+    client = make_client(session)
 
-    with pytest.raises(api.KapsoAuthenticationError, match="Bad key"):
-        await client.async_get_phone_number()
+    with pytest.raises(api.WahaAuthenticationError, match="Bad API key"):
+        await client.async_get_server()

@@ -159,7 +159,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kapso-whatsapp-home-assistant"
+name = "home-assistant-whatsapp"
 version = "0.2.0"
 source = { virtual = "." }
 

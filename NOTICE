@@ -1,5 +1,5 @@
-Kapso WhatsApp for Home Assistant
-Copyright 2026 the Kapso WhatsApp contributors
+Home Assistant WhatsApp
+Copyright 2026 the Home Assistant WhatsApp contributors
 
 Portions of the recipient-subentry and notify-entity structure are adapted from
 Home Assistant Core's Telegram bot integration:
@@ -10,7 +10,7 @@ Home Assistant Core's Telegram bot integration:
 
 Home Assistant Core is licensed under the Apache License, Version 2.0.
 
-The optional WAHA app image incorporates WAHA:
+The WAHA app image incorporates WAHA:
 
   WAHA
   Copyright WAHA contributors

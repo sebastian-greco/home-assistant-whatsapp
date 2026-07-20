@@ -1,8 +1,8 @@
 name: WAHA for Home Assistant
-version: "0.1.1"
+version: "0.2.0"
 slug: waha
 description: Self-hosted WhatsApp API with a Home Assistant sidebar control panel
-url: https://github.com/sebastian-greco/ha-kapso-whatsapp
+url: https://github.com/sebastian-greco/home-assistant-whatsapp
 image: ghcr.io/sebastian-greco/ha-waha
 arch:
   - amd64
@@ -14,6 +14,8 @@ ingress_entry: /
 panel_icon: mdi:whatsapp
 panel_title: WAHA
 backup: cold
+discovery:
+  - waha_whatsapp
 ports:
   3000/tcp: null
 ports_description:

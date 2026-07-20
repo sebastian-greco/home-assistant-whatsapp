@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).parents[1]
-INTEGRATION = ROOT / "custom_components" / "kapso_whatsapp"
+INTEGRATION = ROOT / "custom_components" / "waha_whatsapp"
 
 
 def test_json_metadata_is_valid() -> None:
@@ -17,7 +17,7 @@ def test_json_metadata_is_valid() -> None:
     strings = json.loads((INTEGRATION / "strings.json").read_text())
     english = json.loads((INTEGRATION / "translations" / "en.json").read_text())
 
-    assert manifest["domain"] == "kapso_whatsapp"
+    assert manifest["domain"] == "waha_whatsapp"
     assert manifest["config_flow"] is True
     assert (
         manifest["version"]
@@ -25,15 +25,18 @@ def test_json_metadata_is_valid() -> None:
     )
     assert manifest["codeowners"] == ["@sebastian-greco"]
     assert manifest["issue_tracker"].endswith("/issues")
-    assert hacs["name"] == "Kapso WhatsApp"
+    assert hacs["name"] == "WAHA WhatsApp"
     assert english == strings
 
 
 def test_service_metadata_matches_actions() -> None:
-    """The three Phase 1 actions are described for the automation editor."""
+    """The direct free-form action is described for the automation editor."""
     services = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
-    assert set(services) == {
-        "send_authentication_code",
-        "send_template",
-        "send_text",
-    }
+    assert set(services) == {"send_message"}
+
+
+def test_recipient_flow_uses_home_assistant_people() -> None:
+    """Recipient setup links a Person entity to a WhatsApp number."""
+    source = (INTEGRATION / "config_flow.py").read_text()
+    assert 'domain="person"' in source
+    assert "CONF_PERSON_ENTITY_ID" in source

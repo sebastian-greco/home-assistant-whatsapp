@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-MANIFEST = ROOT / "custom_components" / "kapso_whatsapp" / "manifest.json"
+MANIFEST = ROOT / "custom_components" / "waha_whatsapp" / "manifest.json"
 APP_CONFIG = ROOT / "waha" / "config.yaml"
 APP_DOCKERFILE = ROOT / "waha" / "Dockerfile"
 
@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument(
         "tag",
         nargs="?",
-        help="Optional release tag such as v0.2.0 or waha-v0.1.1",
+        help="Optional release tag such as v1.0.0 or waha-v0.2.0",
     )
     args = parser.parse_args()
 
@@ -65,7 +65,7 @@ def main() -> None:
         elif args.tag.startswith("v"):
             tag_version = args.tag.removeprefix("v")
             expected_version = manifest_version
-            release_name = "Kapso integration"
+            release_name = "WAHA WhatsApp integration"
         else:
             raise SystemExit(f"Unsupported release tag: {args.tag}")
 
@@ -77,7 +77,7 @@ def main() -> None:
 
     print(
         "Versions are consistent: "
-        f"Kapso integration={manifest_version}, WAHA app={app_version}"
+        f"WAHA integration={manifest_version}, WAHA app={app_version}"
     )
 
 

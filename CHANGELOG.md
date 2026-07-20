@@ -5,52 +5,35 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
-### Added
-
-- An experimental HAOS app packaging WAHA 2026.7.1 with the browserless GOWS
-  engine.
-- An ingress-native WAHA sidebar control panel for health, QR linking, and
-  session start, stop, and restart operations.
-- Persistent WAHA sessions, cold-backup support, watchdog monitoring, and a
-  GHCR image build workflow.
-
-### Security
-
-- The WAHA API port is disabled by default, media downloads are off in the
-  initial notification-only phase, and sidebar controls require Home Assistant
-  ingress.
-
-## [0.2.0] - 2026-07-20
+## [1.0.0] - 2026-07-21
 
 ### Added
 
-- Named template parameters for the generic template action and recipient
-  notify entities.
-- Family, Adults, and Guests fan-out notify entities derived from recipient
-  settings.
-- Family member or Guest contact roles plus an independent Adult checkbox.
-- Recipient reconfiguration without deleting and re-adding the contact.
-- A documented migration path for the existing household notification router.
+- A WAHA-native HACS integration for free-form outbound WhatsApp messages.
+- Automatic Supervisor discovery between the HAOS app and HACS integration.
+- Recipient subentries that select existing Home Assistant Person entities and
+  associate them with WhatsApp phone numbers.
+- Native individual, Family, Adults, and Guests notify entities.
+- A direct `waha_whatsapp.send_message` action for arbitrary phone numbers.
+- Redacted diagnostics and manual support for externally hosted WAHA servers.
 
 ### Changed
 
-- New template-backed recipients default to the recommended `subject` and
-  `notification_details` named parameters.
-- New individual entities use the contact name as their suggested entity ID.
-- Existing recipients remain on the legacy positional parameter format until
-  reconfigured.
+- Replaced the Kapso Cloud API and template system with the self-hosted WAHA
+  API and linked-device session.
+- Renamed the integration domain from `kapso_whatsapp` to `waha_whatsapp`.
+- Renamed and refocused the repository as Home Assistant WhatsApp.
 
-## [0.1.0] - 2026-07-19
+### Removed
 
-### Added
+- Kapso credentials, approved templates, authentication templates, and the
+  24-hour free-form messaging restriction.
 
-- UI setup and reauthentication for Kapso API credentials.
-- Recipient subentries with native Home Assistant notify entities.
-- Proactive notifications through approved WhatsApp utility templates.
-- Free-form text messages during an active 24-hour service window.
-- Actions for general templates and COPY_CODE authentication templates.
-- Redacted diagnostics, API error mapping, and conflict retry handling.
-- HACS, Hassfest, lint, formatting, test, and release automation.
+### Migration
 
-[0.2.0]: https://github.com/sebastian-greco/ha-kapso-whatsapp/releases/tag/v0.2.0
-[0.1.0]: https://github.com/sebastian-greco/ha-kapso-whatsapp/releases/tag/v0.1.0
+- This is an intentional breaking provider migration. Remove the Kapso
+  integration before installing WAHA WhatsApp and re-add recipient mappings.
+- The complete Kapso v0.2 state remains on the `legacy-kapso` branch and the
+  original `v0.1.0` and `v0.2.0` tags remain unchanged.
+
+[1.0.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.0.0

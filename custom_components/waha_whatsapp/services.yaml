@@ -1,0 +1,27 @@
+send_message:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: waha_whatsapp
+    to:
+      example: "+39 333 123 4567"
+      required: true
+      selector:
+        text:
+          type: tel
+    title:
+      example: Garage warning
+      selector:
+        text:
+    message:
+      example: The garage door has been open for 10 minutes.
+      required: true
+      selector:
+        text:
+          multiline: true
+    link_preview:
+      default: true
+      selector:
+        boolean:

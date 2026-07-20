@@ -1,1 +1,1 @@
-"""Tests for the Kapso WhatsApp integration."""
+"""Tests for the WAHA WhatsApp integration."""

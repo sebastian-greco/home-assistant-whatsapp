@@ -1,52 +1,40 @@
-"""Individual and group notify entities for Kapso WhatsApp.
-
-The entity-per-recipient structure is adapted from Home Assistant Core's
-Apache-2.0-licensed Telegram bot integration.
-"""
+"""Individual and household-group notify entities for WAHA WhatsApp."""
 
 from typing import override
 
-from homeassistant.components.notify import (
-    NotifyEntity,
-    NotifyEntityFeature,
-)
+from homeassistant.components.notify import NotifyEntity, NotifyEntityFeature
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import KapsoConfigEntry
-from .api import KapsoError
+from . import WahaConfigEntry
+from .api import WahaError
 from .const import (
     CONF_CONTACT_ROLE,
     CONF_GROUP_ADULTS,
-    CONF_NOTIFICATION_MODE,
     CONF_RECIPIENT,
-    CONF_TEMPLATE_LANGUAGE,
-    CONF_TEMPLATE_NAME,
-    CONF_TEMPLATE_PARAMETER_FORMAT,
     CONTACT_ROLE_FAMILY,
     CONTACT_ROLE_GUEST,
     DOMAIN,
-    NOTIFICATION_MODE_TEMPLATE,
     RECIPIENT_GROUP_ADULTS,
     RECIPIENT_GROUP_FAMILY,
     RECIPIENT_GROUP_GUESTS,
-    TEMPLATE_PARAMETER_FORMAT_NAMED,
 )
+from .helpers import render_notification
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: KapsoConfigEntry,
+    config_entry: WahaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up individual recipients and logical household groups."""
+    """Set up person recipients and logical household groups."""
     recipients = list(config_entry.subentries.items())
     for subentry_id, subentry in recipients:
         async_add_entities(
-            [KapsoNotifyEntity(config_entry, subentry)],
+            [WahaNotifyEntity(config_entry, subentry)],
             config_subentry_id=subentry_id,
         )
 
@@ -71,65 +59,63 @@ async def async_setup_entry(
     }
     async_add_entities(
         [
-            KapsoGroupNotifyEntity(config_entry, group, members)
+            WahaGroupNotifyEntity(config_entry, group, members)
             for group, members in group_members.items()
         ]
     )
 
 
-class KapsoNotifyEntity(NotifyEntity):
-    """A WhatsApp notification destination backed by Kapso."""
+class WahaNotifyEntity(NotifyEntity):
+    """A person-linked WhatsApp notification destination."""
 
     _attr_supported_features = NotifyEntityFeature.TITLE
 
     def __init__(
-        self, config_entry: KapsoConfigEntry, subentry: ConfigSubentry
+        self, config_entry: WahaConfigEntry, subentry: ConfigSubentry
     ) -> None:
         """Initialize the recipient notify entity."""
-        phone_number = config_entry.runtime_data.phone_number
-        recipient = subentry.data[CONF_RECIPIENT]
-
         self.config_entry = config_entry
         self._subentry = subentry
         self._attr_name = subentry.title
-        self._attr_unique_id = f"{phone_number.id}_{subentry.unique_id or recipient}"
+        self._attr_unique_id = (
+            f"{config_entry.unique_id}_{subentry.unique_id or subentry.subentry_id}"
+        )
         self._attr_device_info = _device_info(config_entry)
 
     @property
     @override
     def suggested_object_id(self) -> str:
-        """Use the contact name for the initial entity ID."""
+        """Use the Home Assistant Person name for the initial entity ID."""
         return self._subentry.title
 
     @override
     async def async_send_message(self, message: str, title: str | None = None) -> None:
-        """Send a text or template-backed Home Assistant notification."""
+        """Send a free-form notification to this person."""
         try:
             await _async_send_to_recipient(
                 self.config_entry, self._subentry, message, title
             )
-        except KapsoError as err:
+        except WahaError as err:
             raise _home_assistant_error(err) from err
 
 
-class KapsoGroupNotifyEntity(NotifyEntity):
+class WahaGroupNotifyEntity(NotifyEntity):
     """A logical group that fans out to selected WhatsApp recipients."""
 
     _attr_supported_features = NotifyEntityFeature.TITLE
 
     def __init__(
         self,
-        config_entry: KapsoConfigEntry,
+        config_entry: WahaConfigEntry,
         group: str,
         members: list[ConfigSubentry],
     ) -> None:
         """Initialize a Family, Adults, or Guests notification group."""
-        phone_number = config_entry.runtime_data.phone_number
         self.config_entry = config_entry
         self._group = group
         self._members = members
         self._attr_name = group.title()
-        self._attr_unique_id = f"{phone_number.id}_group_{group}"
+        self._attr_unique_id = f"{config_entry.unique_id}_group_{group}"
         self._attr_device_info = _device_info(config_entry)
 
     @property
@@ -140,18 +126,18 @@ class KapsoGroupNotifyEntity(NotifyEntity):
 
     @override
     async def async_send_message(self, message: str, title: str | None = None) -> None:
-        """Send independently to every recipient selected for this group."""
-        failures: list[KapsoError] = []
+        """Send independently to every person selected for this group."""
+        failures: list[WahaError] = []
         for member in self._members:
             try:
                 await _async_send_to_recipient(
                     self.config_entry, member, message, title
                 )
-            except KapsoError as err:
+            except WahaError as err:
                 failures.append(err)
         if failures:
             first_error = failures[0]
-            error = KapsoError(
+            error = WahaError(
                 f"{len(failures)} of {len(self._members)} group deliveries failed: "
                 f"{first_error}"
             )
@@ -159,55 +145,33 @@ class KapsoGroupNotifyEntity(NotifyEntity):
 
 
 async def _async_send_to_recipient(
-    config_entry: KapsoConfigEntry,
+    config_entry: WahaConfigEntry,
     subentry: ConfigSubentry,
     message: str,
     title: str | None,
 ) -> None:
     """Render and send one configured recipient notification."""
-    data = subentry.data
-    client = config_entry.runtime_data.client
-    if data[CONF_NOTIFICATION_MODE] != NOTIFICATION_MODE_TEMPLATE:
-        text = f"{title}\n{message}" if title else message
-        await client.async_send_text(data[CONF_RECIPIENT], text)
-        return
-
-    if data.get(CONF_TEMPLATE_PARAMETER_FORMAT) == TEMPLATE_PARAMETER_FORMAT_NAMED:
-        await client.async_send_template(
-            data[CONF_RECIPIENT],
-            data[CONF_TEMPLATE_NAME],
-            data[CONF_TEMPLATE_LANGUAGE],
-            named_body_parameters={
-                "subject": title or "Home Assistant",
-                "notification_details": message,
-            },
-        )
-        return
-
-    text = f"{title}\n{message}" if title else message
-    await client.async_send_template(
-        data[CONF_RECIPIENT],
-        data[CONF_TEMPLATE_NAME],
-        data[CONF_TEMPLATE_LANGUAGE],
-        body_parameters=[text],
+    await config_entry.runtime_data.client.async_send_text(
+        subentry.data[CONF_RECIPIENT],
+        render_notification(message, title),
     )
 
 
-def _device_info(config_entry: KapsoConfigEntry) -> DeviceInfo:
-    """Describe the shared Kapso WhatsApp sender service."""
-    phone_number = config_entry.runtime_data.phone_number
+def _device_info(config_entry: WahaConfigEntry) -> DeviceInfo:
+    """Describe the shared local WAHA service."""
+    server = config_entry.runtime_data.server
     return DeviceInfo(
-        identifiers={(DOMAIN, phone_number.id)},
+        identifiers={(DOMAIN, config_entry.unique_id or config_entry.entry_id)},
         name=config_entry.title,
-        manufacturer="Kapso",
-        model="WhatsApp Business Cloud API",
+        manufacturer="WAHA",
+        model=f"WhatsApp HTTP API ({server.engine or 'unknown engine'})",
+        sw_version=server.version,
         entry_type=DeviceEntryType.SERVICE,
-        configuration_url="https://app.kapso.ai",
     )
 
 
 def _home_assistant_error(err: Exception) -> HomeAssistantError:
-    """Translate a Kapso delivery failure for Home Assistant."""
+    """Translate a WAHA delivery failure for Home Assistant."""
     return HomeAssistantError(
         translation_domain=DOMAIN,
         translation_key="action_failed",

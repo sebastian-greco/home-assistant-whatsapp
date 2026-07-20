@@ -9,6 +9,7 @@ This first experimental release provides:
 - automatic creation and restoration of one household session;
 - QR linking plus start, stop, and restart controls in the sidebar;
 - Home Assistant watchdog health checks and cold backups;
+- private Supervisor discovery for the companion HACS integration;
 - a private API key and no host port exposure by default.
 
 See `DOCS.md` for installation and security notes.

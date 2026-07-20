@@ -5,8 +5,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
 
-PACKAGE_NAME = "_kapso_whatsapp_test"
-INTEGRATION_PATH = Path(__file__).parents[1] / "custom_components" / "kapso_whatsapp"
+PACKAGE_NAME = "_waha_whatsapp_test"
+INTEGRATION_PATH = Path(__file__).parents[1] / "custom_components" / "waha_whatsapp"
 
 
 def load_integration_module(name: str) -> ModuleType:

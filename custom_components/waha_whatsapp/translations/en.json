@@ -1,0 +1,162 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This WAHA session is already configured.",
+      "invalid_discovery": "The WAHA app supplied invalid discovery information.",
+      "reauth_successful": "WAHA was re-authenticated successfully.",
+      "reconfigure_successful": "The WAHA connection was updated successfully."
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to WAHA.",
+      "invalid_auth": "WAHA rejected the API key.",
+      "session_not_found": "The configured session was not found: {error}",
+      "waha_error": "WAHA returned an error: {error}"
+    },
+    "step": {
+      "hassio_confirm": {
+        "description": "The WAHA Home Assistant app discovered session **{session}** and securely supplied its internal connection settings. Submit to connect it.",
+        "title": "Connect the WAHA app"
+      },
+      "reauth_confirm": {
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "The replacement API key configured in the WAHA app."
+        },
+        "description": "Enter the current API key from the WAHA app configuration.",
+        "title": "Re-authenticate WAHA"
+      },
+      "reconfigure": {
+        "data": {
+          "api_key": "API key",
+          "api_url": "WAHA API URL",
+          "session": "Session"
+        },
+        "data_description": {
+          "api_key": "The API key configured in WAHA.",
+          "api_url": "The internal or network URL of the WAHA API, without a trailing slash.",
+          "session": "The WAHA session used by the household WhatsApp account."
+        },
+        "description": "Update the connection to the WAHA server. Normally the HAOS app keeps this synchronized automatically.",
+        "title": "Reconfigure WAHA"
+      },
+      "user": {
+        "data": {
+          "api_key": "API key",
+          "api_url": "WAHA API URL",
+          "session": "Session"
+        },
+        "data_description": {
+          "api_key": "The API key configured in WAHA.",
+          "api_url": "For an external WAHA server, enter its URL such as http://192.168.1.20:3000. The HAOS app is normally discovered automatically.",
+          "session": "The WAHA session name, usually default."
+        },
+        "description": "Connect Home Assistant to WAHA. If you installed the companion HAOS app, look for the automatically discovered WAHA integration before configuring it manually.",
+        "title": "Set up WAHA WhatsApp"
+      }
+    }
+  },
+  "config_subentries": {
+    "recipient": {
+      "abort": {
+        "entry_not_loaded": "{entry_title} is not loaded.",
+        "person_already_configured": "This Home Assistant Person already has a WhatsApp recipient.",
+        "phone_already_configured": "This phone number is already assigned to another Person.",
+        "reconfigure_successful": "The WhatsApp recipient was updated successfully."
+      },
+      "entry_type": "WhatsApp recipient",
+      "error": {
+        "invalid_recipient": "Invalid phone number: {error}",
+        "person_not_found": "Select an existing Home Assistant Person entity."
+      },
+      "initiate_flow": {
+        "user": "Add WhatsApp recipient"
+      },
+      "step": {
+        "reconfigure": {
+          "data": {
+            "contact_role": "Household role",
+            "group_adults": "Include in Adults group",
+            "person_entity_id": "Home Assistant Person",
+            "recipient": "WhatsApp phone number"
+          },
+          "data_description": {
+            "contact_role": "Family members receive Family notifications; guests receive Guest notifications.",
+            "group_adults": "Also include this person in the Adults notification group.",
+            "person_entity_id": "Select an existing person.* entity. A Person can represent a guest without giving them a Home Assistant login.",
+            "recipient": "International telephone number including country code."
+          },
+          "description": "Update the Person-to-WhatsApp mapping and household groups.",
+          "title": "Update WhatsApp recipient"
+        },
+        "user": {
+          "data": {
+            "contact_role": "Household role",
+            "group_adults": "Include in Adults group",
+            "person_entity_id": "Home Assistant Person",
+            "recipient": "WhatsApp phone number"
+          },
+          "data_description": {
+            "contact_role": "Family members receive Family notifications; guests receive Guest notifications.",
+            "group_adults": "Also include this person in the Adults notification group.",
+            "person_entity_id": "Select an existing person.* entity. A Person can represent a guest without giving them a Home Assistant login.",
+            "recipient": "International telephone number including country code."
+          },
+          "description": "Select an existing Home Assistant Person and add their WhatsApp number. The Person's name becomes the notify entity name.",
+          "title": "Add WhatsApp recipient"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "action_failed": {
+      "message": "WAHA could not send the WhatsApp message: {error}"
+    },
+    "entry_not_loaded": {
+      "message": "{entry_title} is not loaded."
+    },
+    "invalid_config_entry": {
+      "message": "The selected config entry {entry_id} is not a WAHA WhatsApp connection."
+    },
+    "invalid_recipient": {
+      "message": "Invalid WhatsApp phone number: {error}"
+    }
+  },
+  "selector": {
+    "contact_role": {
+      "options": {
+        "family": "Family member",
+        "guest": "Guest"
+      }
+    }
+  },
+  "services": {
+    "send_message": {
+      "description": "Send a free-form WhatsApp message through the configured WAHA session.",
+      "fields": {
+        "config_entry_id": {
+          "description": "WAHA connection and session used to send the message.",
+          "name": "WAHA connection"
+        },
+        "link_preview": {
+          "description": "Generate a WhatsApp preview for links in the message.",
+          "name": "Link preview"
+        },
+        "message": {
+          "description": "Message body.",
+          "name": "Message"
+        },
+        "title": {
+          "description": "Optional bold heading placed before the message.",
+          "name": "Title"
+        },
+        "to": {
+          "description": "Destination phone number with country code.",
+          "name": "Recipient"
+        }
+      },
+      "name": "Send message"
+    }
+  }
+}
