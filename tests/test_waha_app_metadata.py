@@ -26,10 +26,19 @@ def test_app_image_and_upstream_are_version_pinned() -> None:
     config = _config()
     dockerfile = (APP_DIR / "Dockerfile").read_text()
 
-    assert config["version"] == "0.2.0"
+    assert config["version"] == "0.2.1"
     assert config["image"] == "ghcr.io/sebastian-greco/ha-waha"
     assert "devlikeapro/waha:gows-2026.7.1@sha256:" in dockerfile
-    assert "ARG BUILD_VERSION=0.2.0" in dockerfile
+    assert "ARG BUILD_VERSION=0.2.1" in dockerfile
+
+
+def test_device_name_uses_supervisor_string_schema() -> None:
+    """Length validation belongs in the runtime, not Supervisor's str schema."""
+    config = _config()
+    runtime = (APP_DIR / "run.mjs").read_text()
+
+    assert config["schema"]["device_name"] == "str"
+    assert "device_name must contain between 1 and 64 characters" in runtime
 
 
 def test_app_discovers_the_companion_integration() -> None:

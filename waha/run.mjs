@@ -21,7 +21,7 @@ function readOptions() {
 const options = readOptions();
 const apiKey = String(options.api_key || "");
 const sessionName = String(options.session_name || "default");
-const deviceName = String(options.device_name || "Home Assistant");
+const deviceName = String(options.device_name ?? "Home Assistant");
 const logLevel = String(options.log_level || "info");
 
 if (apiKey.length < 16) {
@@ -29,6 +29,9 @@ if (apiKey.length < 16) {
 }
 if (!/^[A-Za-z0-9_-]{1,64}$/.test(sessionName)) {
   fail("session_name may contain only letters, numbers, underscores, and hyphens");
+}
+if (deviceName.length < 1 || deviceName.length > 64) {
+  fail("device_name must contain between 1 and 64 characters");
 }
 if (!["error", "warn", "info", "debug"].includes(logLevel)) {
   fail("log_level must be error, warn, info, or debug");

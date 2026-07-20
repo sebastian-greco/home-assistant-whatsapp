@@ -26,10 +26,13 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_NAME}" == waha-v* ]]; then
             title="WAHA HAOS app ${GITHUB_REF_NAME#waha-v}"
+            latest="false"
           else
             title="WAHA WhatsApp integration ${GITHUB_REF_NAME#v}"
+            latest="true"
           fi
           gh release create "${GITHUB_REF_NAME}" \
             --verify-tag \
             --generate-notes \
+            --latest="${latest}" \
             --title "${title}"

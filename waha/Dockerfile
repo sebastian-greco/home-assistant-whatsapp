@@ -1,7 +1,7 @@
 FROM devlikeapro/waha:gows-2026.7.1@sha256:8f3a7b11310594b973a588b2f7de061864c83532ae2cdff43280db0402bead29
 
 ARG BUILD_ARCH=amd64
-ARG BUILD_VERSION=0.2.0
+ARG BUILD_VERSION=0.2.1
 
 LABEL \
     io.hass.version="${BUILD_VERSION}" \

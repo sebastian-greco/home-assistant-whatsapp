@@ -1,5 +1,5 @@
 name: WAHA for Home Assistant
-version: "0.2.0"
+version: "0.2.1"
 slug: waha
 description: Self-hosted WhatsApp API with a Home Assistant sidebar control panel
 url: https://github.com/sebastian-greco/home-assistant-whatsapp
@@ -30,7 +30,7 @@ options:
 schema:
   api_key: password
   session_name: "match(^[A-Za-z0-9_-]{1,64}$)"
-  device_name: "str(1,64)"
+  device_name: str
   auto_create_session: bool
   log_level: "list(error|warn|info|debug)"
   download_media: bool

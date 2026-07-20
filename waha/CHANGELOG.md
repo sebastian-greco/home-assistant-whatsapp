@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Fix saving the app configuration by using Home Assistant Supervisor's
+  supported string schema for the device name.
+- Enforce the device name's 1–64 character limit when the app starts.
+
 ## 0.2.0
 
 - Publish the app's internal WAHA host, session, and API credentials through
