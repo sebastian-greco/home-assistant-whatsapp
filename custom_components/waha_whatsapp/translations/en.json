@@ -116,6 +116,12 @@
     "invalid_config_entry": {
       "message": "The selected config entry {entry_id} is not a WAHA WhatsApp connection."
     },
+    "invalid_notify_entity": {
+      "message": "{entity_id} is not an individual WAHA WhatsApp notify entity."
+    },
+    "invalid_poll": {
+      "message": "The actionable WhatsApp poll is invalid: {error}"
+    },
     "invalid_recipient": {
       "message": "Invalid WhatsApp phone number: {error}"
     }
@@ -146,6 +152,36 @@
         }
       },
       "name": "Send message"
+    },
+    "send_poll": {
+      "description": "Send a single-selection WhatsApp poll and publish the selected action on Home Assistant's existing mobile_app_notification_action event.",
+      "fields": {
+        "actions": {
+          "description": "Companion App-style action and title pairs. Extra mobile-only fields are ignored.",
+          "name": "Actions"
+        },
+        "entity_id": {
+          "description": "Configured individual WAHA WhatsApp notify entity that receives the poll.",
+          "name": "Recipient"
+        },
+        "message": {
+          "description": "Poll question or notification details.",
+          "name": "Message"
+        },
+        "no_action_title": {
+          "description": "Non-triggering option added when only one real action is supplied.",
+          "name": "No-action option"
+        },
+        "settle_seconds": {
+          "description": "Wait after the latest vote so a mistaken selection can be corrected.",
+          "name": "Correction window"
+        },
+        "title": {
+          "description": "Optional heading placed above the poll question.",
+          "name": "Title"
+        }
+      },
+      "name": "Send actionable poll"
     }
   }
 }

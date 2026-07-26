@@ -138,6 +138,100 @@ async def test_gows_nested_message_id_is_supported() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_single_selection_poll_payload() -> None:
+    """Actionable notifications use WAHA's single-selection poll endpoint."""
+    session = FakeSession(FakeResponse(200, {"id": "POLL-ID"}))
+    client = make_client(session)
+
+    result = await client.async_send_poll(
+        "+39 333 123 4567",
+        "Sleep mode\n\nCancel before it starts?",
+        ["Cancel", "Keep scheduled"],
+    )
+
+    assert result.id == "POLL-ID"
+    assert session.requests[0]["url"].endswith("/api/sendPoll")
+    assert session.requests[0]["json"] == {
+        "session": "house",
+        "chatId": "393331234567@c.us",
+        "poll": {
+            "name": "Sleep mode\n\nCancel before it starts?",
+            "options": ["Cancel", "Keep scheduled"],
+            "multipleAnswers": False,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_ensure_webhook_preserves_unrelated_session_config() -> None:
+    """Automatic poll setup merges rather than replacing user webhooks."""
+    existing = {"url": "http://example.local/hook", "events": ["message"]}
+    session = FakeSession(
+        FakeResponse(
+            200,
+            {
+                "name": "house",
+                "config": {
+                    "metadata": {"house": "test"},
+                    "webhooks": [existing],
+                },
+            },
+        ),
+        FakeResponse(200, {"name": "house"}),
+    )
+    client = make_client(session)
+
+    changed = await client.async_ensure_webhook(
+        "http://homeassistant:8123/api/webhook/private", "hmac-secret"
+    )
+
+    assert changed is True
+    assert session.requests[0]["method"] == "GET"
+    assert session.requests[1]["method"] == "PUT"
+    assert session.requests[1]["json"] == {
+        "name": "house",
+        "config": {
+            "metadata": {"house": "test"},
+            "webhooks": [
+                existing,
+                {
+                    "url": "http://homeassistant:8123/api/webhook/private",
+                    "events": ["poll.vote", "poll.vote.failed"],
+                    "hmac": {"key": "hmac-secret"},
+                    "retries": {
+                        "policy": "constant",
+                        "delaySeconds": 1,
+                        "attempts": 3,
+                    },
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_ensure_webhook_is_idempotent() -> None:
+    """An already-correct private webhook does not update the WAHA session."""
+    desired = {
+        "url": "http://homeassistant:8123/api/webhook/private",
+        "events": ["poll.vote", "poll.vote.failed"],
+        "hmac": {"key": "hmac-secret"},
+        "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
+        "customHeaders": None,
+    }
+    session = FakeSession(
+        FakeResponse(200, {"name": "house", "config": {"webhooks": [desired]}})
+    )
+
+    changed = await make_client(session).async_ensure_webhook(
+        desired["url"], "hmac-secret"
+    )
+
+    assert changed is False
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_authentication_error() -> None:
     """Authentication failures use a dedicated exception for HA reauth."""
     session = FakeSession(FakeResponse(401, {"message": "Bad API key"}))

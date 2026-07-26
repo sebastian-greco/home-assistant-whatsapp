@@ -25,3 +25,44 @@ send_message:
       default: true
       selector:
         boolean:
+
+send_poll:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            domain: notify
+            integration: waha_whatsapp
+    title:
+      example: Sleep mode
+      selector:
+        text:
+    message:
+      example: Cancel Sleep mode before it starts?
+      required: true
+      selector:
+        text:
+          multiline: true
+    actions:
+      example:
+        - action: CANCEL_SLEEP_MODE
+          title: Cancel
+      required: true
+      selector:
+        object:
+    settle_seconds:
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          mode: slider
+          unit_of_measurement: s
+    no_action_title:
+      default: No action
+      example: Keep scheduled
+      selector:
+        text:

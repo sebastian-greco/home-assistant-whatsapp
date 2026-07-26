@@ -5,6 +5,34 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-27
+
+### Added
+
+- Add single-selection WhatsApp actionable polls through
+  `waha_whatsapp.send_poll`, accepting the existing Companion App `action` and
+  `title` dictionaries.
+- Publish settled WhatsApp choices on the existing
+  `mobile_app_notification_action` event so current action-handler automations
+  remain compatible.
+- Configure a private WAHA poll webhook automatically, with SHA-512 HMAC,
+  outbound message/recipient correlation, persisted pending state, and a
+  configurable five-second vote-correction window.
+- Add a non-triggering fallback choice for notifications with only one real
+  action.
+
+### Security
+
+- Preserve unrelated WAHA session webhooks while managing the integration's
+  callback, and keep webhook credentials and correlation data private and
+  redacted from diagnostics.
+
+### Behavior
+
+- Keep workflow execution, state guards, semantic expiry, and confirmation
+  messages in Home Assistant automations. Failed/undecodable votes never fire
+  an action or send an automatic response.
+
 ## [1.1.0] - 2026-07-24
 
 ### Changed
@@ -78,3 +106,4 @@ All notable changes are documented here. This project follows
 [1.0.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.0.0
 [1.0.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.0.1
 [1.1.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.1.0
+[1.2.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.0

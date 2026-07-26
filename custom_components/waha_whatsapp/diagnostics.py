@@ -8,9 +8,15 @@ from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 
 from . import WahaConfigEntry
-from .const import CONF_RECIPIENT
+from .const import CONF_RECIPIENT, CONF_WEBHOOK_ID, CONF_WEBHOOK_SECRET
 
-TO_REDACT = {CONF_API_KEY, CONF_RECIPIENT, "account_id"}
+TO_REDACT = {
+    CONF_API_KEY,
+    CONF_RECIPIENT,
+    CONF_WEBHOOK_ID,
+    CONF_WEBHOOK_SECRET,
+    "account_id",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -21,6 +27,11 @@ async def async_get_config_entry_diagnostics(
         "config_entry": async_redact_data(dict(entry.data), TO_REDACT),
         "server": asdict(entry.runtime_data.server),
         "session": async_redact_data(asdict(entry.runtime_data.session), TO_REDACT),
+        "actionable_polls": {
+            "pending": entry.runtime_data.poll_manager.pending_count,
+            "failed_votes": entry.runtime_data.poll_manager.failed_vote_count,
+            "webhook_configured": True,
+        },
         "recipients": [
             {
                 "title": subentry.title,

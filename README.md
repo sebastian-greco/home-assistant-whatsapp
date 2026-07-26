@@ -17,6 +17,8 @@ and understand that WhatsApp can restrict it.
 ## Current functionality
 
 - Free-form outbound WhatsApp notifications.
+- Single-selection WhatsApp polls that reuse Home Assistant Companion App
+  action IDs and the `mobile_app_notification_action` event.
 - A native `notify` entity for every configured individual contact.
 - Optional association of a contact with an existing Home Assistant Person.
 - Automatic, private discovery of the HAOS app by the HACS integration.
@@ -24,8 +26,9 @@ and understand that WhatsApp can restrict it.
 - A direct action for sending to an arbitrary phone number.
 - QR linking, session lifecycle controls, diagnostics, and persistent backups.
 
-Inbound messages, replies, buttons, access provisioning, and commands are
-intentionally future phases.
+Free-form inbound messages, replies, access provisioning, and commands are
+intentionally future phases. This release receives only authenticated WAHA
+poll-vote events for polls that the integration sent and is still tracking.
 
 ## Requirements
 
@@ -184,13 +187,119 @@ actions:
 The automation editor provides a config-entry picker, so the ID does not need
 to be typed when building the action in the UI.
 
+## Send an actionable notification
+
+Use `waha_whatsapp.send_poll` when a notification has Companion App-style
+`actions`. It targets one configured WAHA notify entity and sends a WhatsApp
+single-selection poll:
+
+```yaml
+actions:
+  - action: waha_whatsapp.send_poll
+    data:
+      entity_id: notify.waha_seba
+      title: Sleep mode
+      message: Sleep mode starts in two minutes. Do you want to cancel it?
+      actions:
+        - action: CANCEL_SLEEP_MODE
+          title: Cancel
+      no_action_title: Keep scheduled
+      settle_seconds: 5
+```
+
+WhatsApp requires at least two poll options. When there is only one real
+action, the integration adds `no_action_title` as a second, non-triggering
+choice. Its default label is `No action`. With two or more real actions, each
+action becomes one option and no synthetic choice is added.
+
+After the latest choice remains unchanged for `settle_seconds` (five seconds
+by default), the integration fires the standard Home Assistant event:
+
+```yaml
+event_type: mobile_app_notification_action
+data:
+  action: CANCEL_SLEEP_MODE
+```
+
+That is the same event contract used by Home Assistant Companion App
+actionable notifications. An existing handler like this works for either the
+mobile notification button or the WhatsApp poll without another trigger:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: CANCEL_SLEEP_MODE
+```
+
+The integration does not call services, enforce workflow expiration, or send
+an automatic confirmation. The receiving automation remains responsible for
+conditions, timers, the actual action, and any follow-up notification. This is
+important for old polls: add a current-state guard in the action handler when
+an action should no longer be valid after the surrounding workflow changes.
+
+The five-second correction window handles a quick misclick: a newer vote
+replaces the earlier choice and restarts the timer. A poll is consumed after
+its first settled choice, including the non-triggering option, so later edits
+cannot fire a second event.
+
+The integration automatically registers a private Home Assistant webhook and
+adds it to the configured WAHA session for `poll.vote` and
+`poll.vote.failed`. HAOS app installations use only the internal app network;
+there is no port forwarding, cloud callback, or manual webhook setup. Every
+request must have WAHA's SHA-512 HMAC signature, and the integration also
+correlates the poll message ID, session, and configured recipient before
+accepting a vote. Existing WAHA webhooks are preserved.
+
+If WAHA reports `poll.vote.failed`, the integration deliberately fires no
+action and sends no automatic message. A sanitized warning and counter appear
+in Home Assistant diagnostics so the automation cannot act on an undecodable
+or ambiguous vote.
+
+### Use the same router data as Companion App actions
+
+A central notification router can continue accepting `data.actions` from its
+callers. For its WhatsApp branch, select the poll action when the list is not
+empty and the ordinary notify action otherwise:
+
+```yaml
+- variables:
+    notification_actions: "{{ data.actions | default([], true) }}"
+
+- if:
+    - condition: template
+      value_template: "{{ notification_actions | count > 0 }}"
+  then:
+    - action: waha_whatsapp.send_poll
+      continue_on_error: true
+      data:
+        entity_id: "{{ whatsapp_target }}"
+        title: "{{ final_title }}"
+        message: "{{ message }}"
+        actions: "{{ notification_actions }}"
+  else:
+    - action: notify.send_message
+      continue_on_error: true
+      target:
+        entity_id: "{{ whatsapp_target }}"
+      data:
+        title: "{{ final_title }}"
+        message: "{{ message }}"
+```
+
+Harmless mobile-only action fields can remain in the dictionaries; the
+WhatsApp bridge uses only `action` and `title`. Text-input/`REPLY` and `URI`
+actions are rejected because a poll cannot preserve those semantics. The
+router still decides whether to send to the Companion App, WhatsApp, or both.
+
 A generic opt-in broadcast to every configured contact is a possible separate
 feature. It is not a household group and is not included in the current
 release.
 
 For a staged transition from Companion App notifications, including dual
-delivery and the limitations around buttons, Alarmo, priority, and mobile-only
-payloads, follow the [notification migration guide](docs/NOTIFICATION_MIGRATION.md).
+delivery, actionable polls, Alarmo, priority, and mobile-only payloads, follow
+the [notification migration guide](docs/NOTIFICATION_MIGRATION.md).
 
 ## Migrating from the Kapso integration
 

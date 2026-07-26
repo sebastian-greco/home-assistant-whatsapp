@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Mapping
 from typing import Any, override
 
@@ -43,6 +44,8 @@ from .const import (
     CONF_PERSON_ENTITY_ID,
     CONF_RECIPIENT,
     CONF_SESSION,
+    CONF_WEBHOOK_ID,
+    CONF_WEBHOOK_SECRET,
     DEFAULT_API_URL,
     DEFAULT_SESSION,
     DOMAIN,
@@ -102,7 +105,7 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle configuration for a WAHA server and session."""
 
     VERSION = 1
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         """Initialize discovery state."""
@@ -145,7 +148,8 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title=_entry_title(server, session), data=data
+                    title=_entry_title(server, session),
+                    data=_with_new_webhook_credentials(data),
                 )
 
         return self.async_show_form(
@@ -201,7 +205,7 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_create_entry(
                     title=_entry_title(server, session),
-                    data=self._discovery_data,
+                    data=_with_new_webhook_credentials(self._discovery_data),
                 )
 
         return self.async_show_form(
@@ -224,6 +228,9 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
             data = _normalize_account_data(user_input)
             if CONF_ADDON_SLUG in entry.data:
                 data[CONF_ADDON_SLUG] = entry.data[CONF_ADDON_SLUG]
+            for key in (CONF_WEBHOOK_ID, CONF_WEBHOOK_SECRET):
+                if key in entry.data:
+                    data[key] = entry.data[key]
             try:
                 server, session = await _validate_account(self.hass, data)
             except WahaAuthenticationError:
@@ -426,6 +433,15 @@ def _normalize_account_data(data: Mapping[str, Any]) -> dict[str, Any]:
         CONF_API_URL: str(data[CONF_API_URL]).strip().rstrip("/"),
         CONF_API_KEY: str(data[CONF_API_KEY]),
         CONF_SESSION: str(data[CONF_SESSION]).strip(),
+    }
+
+
+def _with_new_webhook_credentials(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Create private callback credentials for a new config entry."""
+    return {
+        **data,
+        CONF_WEBHOOK_ID: secrets.token_hex(32),
+        CONF_WEBHOOK_SECRET: secrets.token_urlsafe(48),
     }
 
 

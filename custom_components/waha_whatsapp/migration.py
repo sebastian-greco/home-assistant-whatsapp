@@ -21,3 +21,13 @@ def legacy_group_unique_ids(config_entry_unique_id: str | None) -> frozenset[str
     return frozenset(
         f"{config_entry_unique_id}_group_{group}" for group in LEGACY_GROUP_NAMES
     )
+
+
+def with_webhook_credentials(
+    data: Mapping[str, Any], webhook_id: str, webhook_secret: str
+) -> dict[str, Any]:
+    """Add missing private webhook credentials without rotating existing values."""
+    migrated = dict(data)
+    migrated.setdefault("webhook_id", webhook_id)
+    migrated.setdefault("webhook_secret", webhook_secret)
+    return migrated

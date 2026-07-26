@@ -1,0 +1,222 @@
+"""Tests for actionable poll validation, correlation, and settling."""
+
+import hashlib
+import hmac
+
+import pytest
+
+from ._loader import load_integration_module
+
+polls = load_integration_module("polls")
+
+
+def test_waha_hmac_verification_uses_raw_body_and_sha512() -> None:
+    """Only the exact body signed with the private key is authenticated."""
+    body = b'{"event":"poll.vote"}'
+    signature = hmac.new(b"private-key", body, hashlib.sha512).hexdigest()
+
+    assert polls.verify_hmac_sha512("private-key", body, signature)
+    assert not polls.verify_hmac_sha512("private-key", body + b" ", signature)
+    assert not polls.verify_hmac_sha512("other-key", body, signature)
+    assert not polls.verify_hmac_sha512("private-key", body, None)
+
+
+def vote_payload(
+    *,
+    selected_options: list[str] | None = None,
+    timestamp: float = 100,
+    sender: str = "393331234567@c.us",
+    poll_chat_id: str = "393331234567@c.us",
+    message_id: str = "poll-1",
+    session: str = "house",
+) -> dict:
+    """Build the relevant subset of a WAHA poll.vote webhook."""
+    return {
+        "event": "poll.vote",
+        "session": session,
+        "payload": {
+            "vote": {
+                "fromMe": False,
+                "from": sender,
+                "timestamp": timestamp,
+                "selectedOptions": selected_options or [],
+            },
+            "poll": {
+                "fromMe": True,
+                "id": message_id,
+                "to": poll_chat_id,
+            },
+        },
+    }
+
+
+def test_one_action_adds_non_triggering_option() -> None:
+    """WhatsApp gets a valid two-option poll for a single real action."""
+    options = polls.build_poll_options(
+        [{"action": "CANCEL_SLEEP_MODE", "title": "Cancel", "uri": "ignored"}],
+        "Keep scheduled",
+    )
+
+    assert [(item.title, item.action) for item in options] == [
+        ("Cancel", "CANCEL_SLEEP_MODE"),
+        ("Keep scheduled", None),
+    ]
+
+
+def test_multiple_actions_preserve_existing_action_ids() -> None:
+    """Companion action IDs pass through without translation."""
+    options = polls.build_poll_options(
+        [
+            {"action": "AWAY_CLIMATE_OFF", "title": "Turn off"},
+            {"action": "AWAY_CLIMATE_AWAY_PRESET", "title": "Away preset"},
+            {"action": "AWAY_CLIMATE_LEAVE_AS_IS", "title": "Leave as is"},
+        ],
+        "No action",
+    )
+
+    assert [item.action for item in options] == [
+        "AWAY_CLIMATE_OFF",
+        "AWAY_CLIMATE_AWAY_PRESET",
+        "AWAY_CLIMATE_LEAVE_AS_IS",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("actions", "no_action_title"),
+    [
+        ([], "No action"),
+        ([{"action": "", "title": "Cancel"}], "No action"),
+        ([{"action": "CANCEL", "title": ""}], "No action"),
+        (
+            [
+                {"action": "ONE", "title": "Same"},
+                {"action": "TWO", "title": "Same"},
+            ],
+            "No action",
+        ),
+        ([{"action": "CANCEL", "title": "No action"}], "No action"),
+        ([{"action": "REPLY", "title": "Reply"}], "No action"),
+        (
+            [{"action": "CUSTOM", "title": "Reply", "behavior": "textInput"}],
+            "No action",
+        ),
+    ],
+)
+def test_invalid_poll_options_are_rejected(actions, no_action_title) -> None:
+    """Ambiguous or unrepresentable action sets fail before sending."""
+    with pytest.raises(polls.PollValidationError):
+        polls.build_poll_options(actions, no_action_title)
+
+
+def test_parse_vote_accepts_selection_and_deselection() -> None:
+    """WAHA selections and explicit vote removal are parsed safely."""
+    selected = polls.parse_poll_vote(vote_payload(selected_options=["Cancel"]), "house")
+    deselected = polls.parse_poll_vote(vote_payload(timestamp=101), "house")
+
+    assert selected.selected_title == "Cancel"
+    assert selected.message_id == "poll-1"
+    assert deselected.selected_title is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        vote_payload(session="other"),
+        vote_payload(selected_options=["One", "Two"]),
+        {
+            **vote_payload(selected_options=["Cancel"]),
+            "event": "message",
+        },
+    ],
+)
+def test_parse_vote_rejects_irrelevant_or_multiple_selection(payload) -> None:
+    """Only single-choice votes from the configured session are accepted."""
+    assert polls.parse_poll_vote(payload, "house") is None
+
+
+def test_registry_debounces_to_newest_vote_and_commits_once() -> None:
+    """A quick correction replaces the first choice before publication."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [
+            {"action": "TURN_OFF", "title": "Turn off"},
+            {"action": "LEAVE_ON", "title": "Leave on"},
+        ],
+        "No action",
+    )
+    registry.register("poll-1", "393331234567@c.us", options, 5)
+
+    first = polls.parse_poll_vote(
+        vote_payload(selected_options=["Turn off"], timestamp=100), "house"
+    )
+    corrected = polls.parse_poll_vote(
+        vote_payload(selected_options=["Leave on"], timestamp=101), "house"
+    )
+    assert registry.apply_vote(first, received_at=1000)
+    assert registry.apply_vote(corrected, received_at=1002)
+
+    assert registry.commit("poll-1", 100, now=1007) == (False, None)
+    assert registry.commit("poll-1", 101, now=1006.9) == (False, None)
+    assert registry.commit("poll-1", 101, now=1007) == (True, "LEAVE_ON")
+    assert registry.commit("poll-1", 101, now=1008) == (False, None)
+
+
+def test_registry_rejects_wrong_recipient_unknown_option_and_old_vote() -> None:
+    """Message ID alone cannot authorize an action and old votes cannot win."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    registry.register("poll-1", "393331234567@c.us", options, 5)
+
+    wrong_sender = polls.parse_poll_vote(
+        vote_payload(selected_options=["Cancel"], sender="390000000000@c.us"),
+        "house",
+    )
+    unknown = polls.parse_poll_vote(
+        vote_payload(selected_options=["Unexpected"], timestamp=101), "house"
+    )
+    valid = polls.parse_poll_vote(
+        vote_payload(selected_options=["Cancel"], timestamp=102), "house"
+    )
+    old = polls.parse_poll_vote(
+        vote_payload(selected_options=["Keep scheduled"], timestamp=101), "house"
+    )
+
+    assert not registry.apply_vote(wrong_sender, received_at=1000)
+    assert not registry.apply_vote(unknown, received_at=1000)
+    assert registry.apply_vote(valid, received_at=1000)
+    assert not registry.apply_vote(old, received_at=1001)
+
+
+def test_no_action_selection_is_consumed_without_action() -> None:
+    """The synthetic option closes correlation but never fires an action."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    registry.register("poll-1", "393331234567@c.us", options, 5)
+    vote = polls.parse_poll_vote(
+        vote_payload(selected_options=["Keep scheduled"]), "house"
+    )
+
+    assert registry.apply_vote(vote, received_at=1000)
+    assert registry.commit("poll-1", 100, now=1005) == (True, None)
+
+
+def test_pending_poll_storage_round_trip() -> None:
+    """A restart preserves correlation and the latest correction window."""
+    original = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    original.register("poll-1", "393331234567@c.us", options, 5)
+    vote = polls.parse_poll_vote(
+        vote_payload(selected_options=["Cancel"], timestamp=123), "house"
+    )
+    original.apply_vote(vote, received_at=1000)
+
+    restored = polls.PollRegistry()
+    restored.load(original.as_dict())
+
+    assert restored.commit("poll-1", 123, now=1005) == (True, "CANCEL")

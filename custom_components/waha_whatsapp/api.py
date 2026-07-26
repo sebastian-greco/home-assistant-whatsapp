@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from aiohttp import ClientError, ClientSession
 
@@ -142,6 +143,70 @@ class WahaClient:
         data = await self._request("POST", "/api/sendText", json=payload)
         return WahaMessage(id=_message_id(data), chat_id=chat_id)
 
+    async def async_send_poll(
+        self,
+        recipient: str,
+        question: str,
+        options: list[str],
+    ) -> WahaMessage:
+        """Send a single-selection WhatsApp poll."""
+        chat_id = normalize_chat_id(recipient)
+        payload = {
+            "session": self.session_name,
+            "chatId": chat_id,
+            "poll": {
+                "name": question,
+                "options": options,
+                "multipleAnswers": False,
+            },
+        }
+        data = await self._request("POST", "/api/sendPoll", json=payload)
+        return WahaMessage(id=_message_id(data), chat_id=chat_id)
+
+    async def async_ensure_webhook(self, url: str, hmac_key: str) -> bool:
+        """Add or update our poll webhook without changing unrelated webhooks."""
+        session_path = f"/api/sessions/{quote(self.session_name, safe='')}"
+        data = await self._request("GET", session_path)
+        if not isinstance(data, dict):
+            raise WahaResponseError("WAHA returned invalid session configuration")
+
+        raw_config = data.get("config")
+        if raw_config is None:
+            config: dict[str, Any] = {}
+        elif isinstance(raw_config, dict):
+            config = {**raw_config}
+        else:
+            raise WahaResponseError("WAHA returned invalid session configuration")
+
+        raw_webhooks = config.get("webhooks", [])
+        if not isinstance(raw_webhooks, list) or not all(
+            isinstance(item, dict) for item in raw_webhooks
+        ):
+            raise WahaResponseError("WAHA returned invalid webhook configuration")
+
+        desired = {
+            "url": url,
+            "events": ["poll.vote", "poll.vote.failed"],
+            "hmac": {"key": hmac_key},
+            "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
+        }
+        matching = [item for item in raw_webhooks if item.get("url") == url]
+        if len(matching) == 1 and _webhook_matches(matching[0], desired):
+            return False
+
+        if matching:
+            desired = {**matching[-1], **desired}
+        webhooks = [item for item in raw_webhooks if item.get("url") != url]
+        webhooks.append(desired)
+
+        config["webhooks"] = webhooks
+        await self._request(
+            "PUT",
+            session_path,
+            json={"name": self.session_name, "config": config},
+        )
+        return True
+
     async def _request(
         self,
         method: str,
@@ -166,7 +231,7 @@ class WahaClient:
                 ) as response:
                     try:
                         data = await response.json(content_type=None)
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         data = {"message": await response.text()}
                     status = response.status
         except TimeoutError as err:
@@ -199,6 +264,11 @@ def _message_id(data: Any) -> str | None:
         if isinstance(raw_id, dict) and isinstance(raw_id.get("id"), str):
             return raw_id["id"]
     return None
+
+
+def _webhook_matches(current: dict[str, Any], desired: dict[str, Any]) -> bool:
+    """Compare integration-owned fields while allowing WAHA response defaults."""
+    return all(current.get(key) == value for key, value in desired.items())
 
 
 def _error_message(data: Any, status: int) -> str:

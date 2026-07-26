@@ -1,8 +1,9 @@
 # Migrate Home Assistant notifications to WAHA WhatsApp
 
-This guide covers the send-only phase of WAHA WhatsApp. It keeps existing
-automation call sites stable, introduces WhatsApp gradually, and preserves the
-Home Assistant Companion App where WhatsApp cannot yet replace its behavior.
+This guide covers ordinary and poll-based actionable WAHA WhatsApp
+notifications. It keeps existing automation action handlers stable,
+introduces WhatsApp gradually, and preserves the Home Assistant Companion App
+where WhatsApp cannot replace its behavior.
 
 ## Before changing automations
 
@@ -46,18 +47,63 @@ Route to explicit individual targets in your central notification script.
 Associated contacts expose `person_entity_id` on their individual notify
 entity. The phone number is not exposed.
 
-## What does not map yet
+## Actionable notifications
 
-The outbound-only phase does not implement:
+The Companion App publishes a button's action ID on Home Assistant's
+`mobile_app_notification_action` event. WAHA WhatsApp polls publish the same
+event after a choice has remained stable for five seconds. Existing event
+triggers therefore remain unchanged.
 
-- notification buttons or replies;
+The outbound delivery call is channel-specific: continue using
+`notify.send_message` for the Companion App, and use
+`waha_whatsapp.send_poll` for the WhatsApp branch when `data.actions` is not
+empty.
+
+```yaml
+- action: waha_whatsapp.send_poll
+  continue_on_error: true
+  data:
+    entity_id: "{{ whatsapp_target }}"
+    title: "{{ final_title }}"
+    message: "{{ message }}"
+    actions: "{{ data.actions }}"
+    settle_seconds: 5
+```
+
+Only the existing `action` and `title` fields are used; harmless mobile-only
+fields are ignored. Text-input/`REPLY` and `URI` actions are rejected because
+polls cannot preserve their semantics. A notification containing one real
+action gets a second, non-triggering option because WhatsApp polls need at
+least two choices. For example, `Cancel` plus `Keep scheduled` publishes
+`CANCEL_SLEEP_MODE` only when `Cancel` is selected.
+
+The integration correlates the authenticated vote with the outgoing poll,
+waits for quick corrections, and fires the event once. It does not perform the
+action, create an expiry timer, or send a confirmation. Keep all workflow
+conditions, timers, service calls, and follow-up messages in the existing
+action-handler automation. Add a state guard there if an old poll choice must
+be ignored after the workflow changes.
+
+WAHA webhooks are configured automatically. With the companion HAOS app the
+callback stays on the private app network and requires a SHA-512 HMAC; no
+public URL or manual webhook configuration is needed. For an external WAHA
+server, the Home Assistant internal URL must be reachable from that server.
+
+If a poll vote cannot be decrypted, no event is fired and no automatic retry
+or confirmation is sent. Check Home Assistant logs and the integration's
+diagnostics for the sanitized failure counter.
+
+## What still does not map
+
+The integration still does not implement:
+
+- free-form replies and text commands;
 - Companion App tags, replacement, clearing, persistence, or sticky behavior;
 - Android notification channels, TTL, importance, or iOS interruption levels;
 - delivery acknowledgement, retries, or automatic fallback;
 - inbound commands or identity verification.
 
-Keep the Companion App notification whenever `data.actions` is present. Keep
-Alarmo and other safety-critical notifications on the Companion App as a
+Keep Alarmo and other safety-critical notifications on the Companion App as a
 tested fallback even if they are also copied to WhatsApp. A mobile
 `clear_notification` command is an app operation and must not be converted to
 WhatsApp text.
@@ -152,12 +198,12 @@ After a stable trial, remove Companion App delivery only for ordinary
 informational messages. Retain the existing wrapper script interfaces so the
 choice can be reversed without editing every automation.
 
-### 4. Keep actionable and critical fallback
+### 4. Add actionable polls with a critical fallback
 
-Continue dual delivery for actionable, Alarmo, security, access, power outage,
-and other safety-sensitive workflows. WhatsApp should not become their only
-control or alert path until authenticated inbound actions, stale-action
-protection, and fallback behavior have been implemented and tested.
+Use `waha_whatsapp.send_poll` for actionable WhatsApp branches while keeping
+the existing Companion App action notification during rollout. Continue dual
+delivery for Alarmo, security, access, power outage, and other safety-sensitive
+workflows until their state guards and fallback behavior have been tested.
 
 ## Troubleshooting
 

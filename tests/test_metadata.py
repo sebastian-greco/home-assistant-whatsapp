@@ -30,9 +30,9 @@ def test_json_metadata_is_valid() -> None:
 
 
 def test_service_metadata_matches_actions() -> None:
-    """The direct free-form action is described for the automation editor."""
+    """Free-form and actionable poll actions have editor metadata."""
     services = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
-    assert set(services) == {"send_message"}
+    assert set(services) == {"send_message", "send_poll"}
 
 
 def test_recipient_flow_uses_home_assistant_people() -> None:
@@ -81,13 +81,60 @@ def test_notify_entities_expose_safe_person_metadata() -> None:
 
 
 def test_config_entry_migration_is_registered() -> None:
-    """Version 1.2 migration removes only legacy integration-owned groups."""
+    """Version 1.3 safely removes groups and adds private webhook credentials."""
     integration = (INTEGRATION / "__init__.py").read_text()
     config_flow = (INTEGRATION / "config_flow.py").read_text()
 
-    assert "MINOR_VERSION = 2" in config_flow
+    assert "MINOR_VERSION = 3" in config_flow
     assert "async def async_migrate_entry(" in integration
     assert "async_update_subentry(" in integration
     assert "async_entries_for_config_entry(" in integration
     assert "entity.platform == DOMAIN" in integration
     assert "entity.unique_id in obsolete_unique_ids" in integration
+    assert "with_webhook_credentials(" in integration
+
+
+def test_actionable_polls_reuse_companion_app_event_contract() -> None:
+    """Existing action automations can consume settled WhatsApp poll votes."""
+    constants = (INTEGRATION / "const.py").read_text()
+    manager = (INTEGRATION / "poll_manager.py").read_text()
+
+    assert (
+        'EVENT_MOBILE_APP_NOTIFICATION_ACTION: Final = "mobile_app_notification_action"'
+        in constants
+    )
+    assert "EVENT_MOBILE_APP_NOTIFICATION_ACTION" in manager
+    assert '{"action": action}' in manager
+    assert "async_fire(" in manager
+    assert "async_call(" not in manager
+
+
+def test_poll_webhook_is_private_and_authenticated() -> None:
+    """Inbound poll actions require a local callback and WAHA HMAC."""
+    integration = (INTEGRATION / "__init__.py").read_text()
+    manager = (INTEGRATION / "poll_manager.py").read_text()
+
+    assert "local_only=True" in integration
+    assert 'algorithm != "sha512"' in integration
+    assert "verify_signature(raw_body, signature)" in integration
+    assert "poll.vote.failed" in manager
+
+
+def test_poll_secrets_are_redacted_from_diagnostics() -> None:
+    """Private callback credentials are not exposed in downloaded diagnostics."""
+    diagnostics = (INTEGRATION / "diagnostics.py").read_text()
+
+    assert "CONF_WEBHOOK_ID" in diagnostics
+    assert "CONF_WEBHOOK_SECRET" in diagnostics
+    assert "TO_REDACT" in diagnostics
+
+
+def test_actionable_poll_responsibilities_are_documented() -> None:
+    """The guide keeps execution, expiry, and confirmation in automations."""
+    readme = (ROOT / "README.md").read_text()
+    migration_guide = (ROOT / "docs" / "NOTIFICATION_MIGRATION.md").read_text()
+
+    assert "mobile_app_notification_action" in readme
+    assert "does not call services, enforce workflow expiration" in readme
+    assert "It does not perform the" in migration_guide
+    assert "action, create an expiry timer, or send a confirmation" in migration_guide
