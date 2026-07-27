@@ -134,6 +134,16 @@ def test_parse_vote_rejects_irrelevant_or_multiple_selection(payload) -> None:
     assert polls.parse_poll_vote(payload, "house") is None
 
 
+def test_parse_vote_reports_safe_rejection_reason() -> None:
+    """Malformed authenticated callbacks can be diagnosed without identifiers."""
+    vote, reason = polls.parse_poll_vote_with_reason(
+        vote_payload(selected_options=["One", "Two"]), "house"
+    )
+
+    assert vote is None
+    assert reason is polls.PollVoteRejectionReason.MULTIPLE_SELECTIONS
+
+
 def test_registry_debounces_to_newest_vote_and_commits_once() -> None:
     """A quick correction replaces the first choice before publication."""
     registry = polls.PollRegistry()
@@ -187,6 +197,71 @@ def test_registry_rejects_wrong_recipient_unknown_option_and_old_vote() -> None:
     assert not registry.apply_vote(unknown, received_at=1000)
     assert registry.apply_vote(valid, received_at=1000)
     assert not registry.apply_vote(old, received_at=1001)
+
+
+def test_registry_accepts_gows_lid_sender_for_exact_direct_poll_destination() -> None:
+    """GOWS may identify a direct recipient by LID instead of phone-number JID."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    registry.register("poll-1", "393331234567@c.us", options, 5)
+    gows_vote = polls.parse_poll_vote(
+        vote_payload(
+            selected_options=["Cancel"],
+            sender="178563278901234@lid",
+        ),
+        "house",
+    )
+
+    assert registry.apply_vote_with_reason(gows_vote, received_at=1000) is None
+    assert registry.commit("poll-1", 100, now=1005) == (True, "CANCEL")
+
+
+@pytest.mark.parametrize(
+    ("sender", "poll_chat_id", "expected_reason"),
+    [
+        (
+            "390000000000@c.us",
+            "393331234567@c.us",
+            polls.PollVoteRejectionReason.SENDER_IDENTITY_MISMATCH,
+        ),
+        (
+            "not-a-number@lid",
+            "393331234567@c.us",
+            polls.PollVoteRejectionReason.SENDER_IDENTITY_MISMATCH,
+        ),
+        (
+            "178563278901234@lid",
+            "390000000000@c.us",
+            polls.PollVoteRejectionReason.POLL_CHAT_MISMATCH,
+        ),
+        (
+            "178563278901234@lid",
+            "123456789@g.us",
+            polls.PollVoteRejectionReason.POLL_CHAT_MISMATCH,
+        ),
+    ],
+)
+def test_registry_preserves_direct_poll_destination_security(
+    sender, poll_chat_id, expected_reason
+) -> None:
+    """LID support never weakens exact destination or non-LID identity checks."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    registry.register("poll-1", "393331234567@c.us", options, 5)
+    vote = polls.parse_poll_vote(
+        vote_payload(
+            selected_options=["Cancel"],
+            sender=sender,
+            poll_chat_id=poll_chat_id,
+        ),
+        "house",
+    )
+
+    assert registry.apply_vote_with_reason(vote, received_at=1000) is expected_reason
 
 
 def test_no_action_selection_is_consumed_without_action() -> None:

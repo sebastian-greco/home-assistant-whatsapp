@@ -127,6 +127,8 @@ def test_poll_secrets_are_redacted_from_diagnostics() -> None:
     assert "CONF_WEBHOOK_ID" in diagnostics
     assert "CONF_WEBHOOK_SECRET" in diagnostics
     assert "TO_REDACT" in diagnostics
+    assert '"rejected_votes"' in diagnostics
+    assert '"rejection_reasons"' in diagnostics
 
 
 def test_actionable_poll_responsibilities_are_documented() -> None:

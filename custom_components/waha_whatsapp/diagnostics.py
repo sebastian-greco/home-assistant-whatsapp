@@ -30,6 +30,10 @@ async def async_get_config_entry_diagnostics(
         "actionable_polls": {
             "pending": entry.runtime_data.poll_manager.pending_count,
             "failed_votes": entry.runtime_data.poll_manager.failed_vote_count,
+            "rejected_votes": entry.runtime_data.poll_manager.rejected_vote_count,
+            "rejection_reasons": (
+                entry.runtime_data.poll_manager.rejected_vote_reasons
+            ),
             "webhook_configured": True,
         },
         "recipients": [

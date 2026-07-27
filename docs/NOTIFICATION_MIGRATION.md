@@ -89,9 +89,12 @@ callback stays on the private app network and requires a SHA-512 HMAC; no
 public URL or manual webhook configuration is needed. For an external WAHA
 server, the Home Assistant internal URL must be reachable from that server.
 
-If a poll vote cannot be decrypted, no event is fired and no automatic retry
-or confirmation is sent. Check Home Assistant logs and the integration's
-diagnostics for the sanitized failure counter.
+If a poll vote cannot be decrypted or fails correlation, no event is fired and
+no automatic retry or confirmation is sent. Check Home Assistant logs and the
+integration's diagnostics for sanitized failure and rejection-reason counters;
+they contain no phone numbers, message IDs, or poll contents. Direct votes from
+GOWS are compatible with WhatsApp's alternate `@lid` voter identity while the
+poll destination remains strictly matched to the configured contact.
 
 ## What still does not map
 

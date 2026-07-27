@@ -252,10 +252,17 @@ request must have WAHA's SHA-512 HMAC signature, and the integration also
 correlates the poll message ID, session, and configured recipient before
 accepting a vote. Existing WAHA webhooks are preserved.
 
-If WAHA reports `poll.vote.failed`, the integration deliberately fires no
-action and sends no automatic message. A sanitized warning and counter appear
-in Home Assistant diagnostics so the automation cannot act on an undecodable
-or ambiguous vote.
+If WAHA reports `poll.vote.failed`, or an authenticated vote fails validation,
+the integration deliberately fires no action and sends no automatic message.
+Sanitized warnings and per-reason counters appear in Home Assistant diagnostics
+without message IDs, contact identifiers, phone numbers, or poll contents.
+
+GOWS can report the voter with WhatsApp's alternate `@lid` identity even when
+the configured direct recipient uses a phone-number `@c.us` chat ID. The
+integration accepts that representation only for an otherwise fully correlated
+direct-message poll: the private HMAC callback, session, exact outgoing message
+ID, outgoing direction, and exact destination chat must still match. It does
+not relax recipient matching for another phone-number JID or for group polls.
 
 ### Use the same router data as Companion App actions
 

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
@@ -14,7 +15,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import EVENT_MOBILE_APP_NOTIFICATION_ACTION
-from .polls import PollOption, PollRegistry, parse_poll_vote, verify_hmac_sha512
+from .polls import (
+    PollOption,
+    PollRegistry,
+    PollVoteRejectionReason,
+    parse_poll_vote_with_reason,
+    verify_hmac_sha512,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,11 +52,27 @@ class WahaPollManager:
         )
         self._timers: dict[str, asyncio.TimerHandle] = {}
         self.failed_vote_count = 0
+        self._rejected_vote_counts: Counter[PollVoteRejectionReason] = Counter()
 
     @property
     def pending_count(self) -> int:
         """Return the number of outbound polls still awaiting a stable choice."""
         return len(self._registry.pending_polls())
+
+    @property
+    def rejected_vote_count(self) -> int:
+        """Return the number of authenticated votes rejected after parsing."""
+        return sum(self._rejected_vote_counts.values())
+
+    @property
+    def rejected_vote_reasons(self) -> dict[str, int]:
+        """Return non-sensitive rejection counters for diagnostics."""
+        return {
+            reason.value: count
+            for reason, count in sorted(
+                self._rejected_vote_counts.items(), key=lambda item: item[0].value
+            )
+        }
 
     async def async_start(self) -> None:
         """Restore pending polls and their vote-settling timers."""
@@ -99,8 +122,15 @@ class WahaPollManager:
                 )
             return
 
-        vote = parse_poll_vote(data, self._session_name)
-        if vote is None or not self._registry.apply_vote(vote, time.time()):
+        vote, rejection_reason = parse_poll_vote_with_reason(data, self._session_name)
+        if rejection_reason is not None:
+            self._record_rejected_vote(rejection_reason)
+            return
+
+        assert vote is not None
+        rejection_reason = self._registry.apply_vote_with_reason(vote, time.time())
+        if rejection_reason is not None:
+            self._record_rejected_vote(rejection_reason)
             return
 
         previous = self._timers.pop(vote.message_id, None)
@@ -169,3 +199,12 @@ class WahaPollManager:
     async def _async_save(self) -> None:
         """Write correlation state immediately so restarts do not lose votes."""
         await self._store.async_save(self._registry.as_dict())
+
+    def _record_rejected_vote(self, reason: PollVoteRejectionReason) -> None:
+        """Record and log a rejection without identifiers or payload content."""
+        self._rejected_vote_counts[reason] += 1
+        _LOGGER.warning(
+            "Rejected authenticated WAHA poll vote (%s); no Home Assistant "
+            "action was fired",
+            reason.value,
+        )

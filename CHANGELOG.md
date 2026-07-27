@@ -5,6 +5,23 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-27
+
+### Fixed
+
+- Accept GOWS direct-message poll votes when WhatsApp identifies the voter with
+  an alternate numeric `@lid`, while continuing to require the authenticated
+  webhook, configured session, exact outgoing message ID and direction, and
+  exact phone-number destination chat.
+- Add sanitized rejection warnings and diagnostic counters so authenticated
+  poll votes no longer fail silently when parsing or correlation rejects them.
+
+### Security
+
+- Keep mismatched phone-number JIDs, malformed LIDs, destination changes, and
+  group-chat identities rejected. Diagnostics never expose phone numbers,
+  message IDs, actions, or poll contents.
+
 ## [1.2.0] - 2026-07-27
 
 ### Added
@@ -107,3 +124,4 @@ All notable changes are documented here. This project follows
 [1.0.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.0.1
 [1.1.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.1.0
 [1.2.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.0
+[1.2.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.1

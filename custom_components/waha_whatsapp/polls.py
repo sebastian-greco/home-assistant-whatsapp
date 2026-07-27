@@ -6,11 +6,27 @@ import hashlib
 import hmac
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 
 class PollValidationError(ValueError):
     """Raised when an actionable poll cannot be represented safely."""
+
+
+class PollVoteRejectionReason(StrEnum):
+    """Non-sensitive reason an authenticated vote was not accepted."""
+
+    INVALID_EVENT_OR_SESSION = "invalid_event_or_session"
+    MALFORMED_PAYLOAD = "malformed_payload"
+    INVALID_DIRECTION = "invalid_direction"
+    INVALID_FIELDS = "invalid_fields"
+    MULTIPLE_SELECTIONS = "multiple_selections"
+    UNKNOWN_POLL = "unknown_poll"
+    POLL_CHAT_MISMATCH = "poll_chat_mismatch"
+    SENDER_IDENTITY_MISMATCH = "sender_identity_mismatch"
+    STALE_VOTE = "stale_vote"
+    UNKNOWN_OPTION = "unknown_option"
 
 
 def verify_hmac_sha512(secret: str, raw_body: bytes, signature: str | None) -> bool:
@@ -165,17 +181,25 @@ def build_poll_options(
 
 def parse_poll_vote(data: Mapping[str, Any], session_name: str) -> PollVote | None:
     """Validate the relevant fields in a WAHA poll vote webhook."""
+    vote, _reason = parse_poll_vote_with_reason(data, session_name)
+    return vote
+
+
+def parse_poll_vote_with_reason(
+    data: Mapping[str, Any], session_name: str
+) -> tuple[PollVote | None, PollVoteRejectionReason | None]:
+    """Validate a vote and return a safe rejection reason when invalid."""
     if data.get("event") != "poll.vote" or data.get("session") != session_name:
-        return None
+        return None, PollVoteRejectionReason.INVALID_EVENT_OR_SESSION
     payload = data.get("payload")
     if not isinstance(payload, Mapping):
-        return None
+        return None, PollVoteRejectionReason.MALFORMED_PAYLOAD
     vote = payload.get("vote")
     poll = payload.get("poll")
     if not isinstance(vote, Mapping) or not isinstance(poll, Mapping):
-        return None
+        return None, PollVoteRejectionReason.MALFORMED_PAYLOAD
     if vote.get("fromMe") is not False or poll.get("fromMe") is not True:
-        return None
+        return None, PollVoteRejectionReason.INVALID_DIRECTION
 
     message_id = poll.get("id")
     sender = vote.get("from")
@@ -191,22 +215,26 @@ def parse_poll_vote(data: Mapping[str, Any], session_name: str) -> PollVote | No
         or not poll_chat_id
         or not isinstance(timestamp, int | float)
         or not isinstance(selected_options, list)
-        or len(selected_options) > 1
     ):
-        return None
+        return None, PollVoteRejectionReason.INVALID_FIELDS
+    if len(selected_options) > 1:
+        return None, PollVoteRejectionReason.MULTIPLE_SELECTIONS
 
     selected_title: str | None = None
     if selected_options:
         selected_title = selected_options[0]
         if not isinstance(selected_title, str) or not selected_title:
-            return None
+            return None, PollVoteRejectionReason.INVALID_FIELDS
 
-    return PollVote(
-        message_id=message_id,
-        sender=sender,
-        poll_chat_id=poll_chat_id,
-        selected_title=selected_title,
-        timestamp=float(timestamp),
+    return (
+        PollVote(
+            message_id=message_id,
+            sender=sender,
+            poll_chat_id=poll_chat_id,
+            selected_title=selected_title,
+            timestamp=float(timestamp),
+        ),
+        None,
     )
 
 
@@ -234,23 +262,29 @@ class PollRegistry:
 
     def apply_vote(self, vote: PollVote, received_at: float) -> bool:
         """Apply a newer authenticated vote and start its settling window."""
+        return self.apply_vote_with_reason(vote, received_at) is None
+
+    def apply_vote_with_reason(
+        self, vote: PollVote, received_at: float
+    ) -> PollVoteRejectionReason | None:
+        """Apply a vote or return a non-sensitive reason for rejecting it."""
         pending = self._polls.get(vote.message_id)
         if pending is None:
-            return False
-        if not _same_chat_id(vote.sender, pending.chat_id) or not _same_chat_id(
-            vote.poll_chat_id, pending.chat_id
-        ):
-            return False
+            return PollVoteRejectionReason.UNKNOWN_POLL
+        if not _same_chat_id(vote.poll_chat_id, pending.chat_id):
+            return PollVoteRejectionReason.POLL_CHAT_MISMATCH
+        if not _valid_direct_vote_sender(vote.sender, pending.chat_id):
+            return PollVoteRejectionReason.SENDER_IDENTITY_MISMATCH
         if (
             pending.latest_vote_timestamp is not None
             and vote.timestamp <= pending.latest_vote_timestamp
         ):
-            return False
+            return PollVoteRejectionReason.STALE_VOTE
         if (
             vote.selected_title is not None
             and vote.selected_title not in pending.options
         ):
-            return False
+            return PollVoteRejectionReason.UNKNOWN_OPTION
 
         pending.latest_vote_timestamp = vote.timestamp
         pending.selected_title = vote.selected_title
@@ -259,7 +293,7 @@ class PollRegistry:
             if vote.selected_title is not None
             else None
         )
-        return True
+        return None
 
     def pending(self, message_id: str) -> PendingPoll | None:
         """Return pending state for scheduling and diagnostics."""
@@ -307,3 +341,27 @@ class PollRegistry:
 def _same_chat_id(left: str, right: str) -> bool:
     """Compare WAHA chat IDs case-insensitively without exposing them."""
     return left.casefold() == right.casefold()
+
+
+def _valid_direct_vote_sender(sender: str, destination: str) -> bool:
+    """Match a direct recipient while allowing WhatsApp's alternate LID."""
+    if _same_chat_id(sender, destination):
+        return True
+    return _is_phone_chat_id(destination) and _is_lid_chat_id(sender)
+
+
+def _is_phone_chat_id(value: str) -> bool:
+    """Return whether a chat ID is the direct phone-number form used by WAHA."""
+    local, separator, domain = value.rpartition("@")
+    return bool(separator and local.isdecimal() and domain.casefold() == "c.us")
+
+
+def _is_lid_chat_id(value: str) -> bool:
+    """Return whether a chat ID is a syntactically valid WhatsApp LID."""
+    local, separator, domain = value.rpartition("@")
+    if not separator or domain.casefold() != "lid":
+        return False
+    account, device_separator, device = local.partition(":")
+    return account.isdecimal() and (
+        not device_separator or (device.isdecimal() and ":" not in device)
+    )
