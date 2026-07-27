@@ -109,6 +109,23 @@ def test_actionable_polls_reuse_companion_app_event_contract() -> None:
     assert "async_call(" not in manager
 
 
+def test_poll_events_attribute_linked_active_home_assistant_user() -> None:
+    """Voter identity uses Person metadata and event context, not event data."""
+    integration = (INTEGRATION / "__init__.py").read_text()
+    manager = (INTEGRATION / "poll_manager.py").read_text()
+    polls = (INTEGRATION / "polls.py").read_text()
+
+    assert "CONF_PERSON_ENTITY_ID" in integration
+    assert "person_entity_id: str | None" in polls
+    assert '"person_entity_id": self.person_entity_id' in polls
+    assert '"user_id"' not in polls
+    assert "PersonEntityStateAttribute.USER_ID" in manager
+    assert "self._hass.auth.async_get_user(user_id)" in manager
+    assert "not user.is_active" in manager
+    assert "Context(user_id=user.id)" in manager
+    assert "EventOrigin.REMOTE" in manager
+
+
 def test_poll_webhook_is_private_and_authenticated() -> None:
     """Inbound poll actions require a local callback and WAHA HMAC."""
     integration = (INTEGRATION / "__init__.py").read_text()

@@ -239,6 +239,15 @@ conditions, timers, the actual action, and any follow-up notification. This is
 important for old polls: add a current-state guard in the action handler when
 an action should no longer be valid after the surrounding workflow changes.
 
+When the configured WhatsApp contact has a Person association and that Person
+is linked to an active Home Assistant user, the settled event has that user's
+ID in `trigger.event.context.user_id`. This mirrors Companion App attribution
+and allows one shared action handler to identify who responded. The integration
+stores only `person_entity_id` with the pending poll; it resolves the Person's
+current user when the vote settles and never includes the user ID in event
+data. Contacts without a linked active user still fire the same action with a
+null `context.user_id`. WhatsApp responses use the `REMOTE` event origin.
+
 The five-second correction window handles a quick misclick: a newer vote
 replaces the earlier choice and restarts the timer. A poll is consumed after
 its first settled choice, including the non-triggering option, so later edits

@@ -10,8 +10,9 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+from homeassistant.components.person.const import PersonEntityStateAttribute
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, EventOrigin, HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .api import WahaClient, WahaError
@@ -108,9 +109,16 @@ class WahaPollManager:
         chat_id: str,
         options: tuple[PollOption, ...],
         settle_seconds: float,
+        person_entity_id: str | None = None,
     ) -> None:
         """Persist the correlation data for one outbound actionable poll."""
-        self._registry.register(message_id, chat_id, options, settle_seconds)
+        self._registry.register(
+            message_id,
+            chat_id,
+            options,
+            settle_seconds,
+            person_entity_id,
+        )
         await self._async_save()
 
     def verify_signature(self, raw_body: bytes, signature: str | None) -> bool:
@@ -194,6 +202,8 @@ class WahaPollManager:
 
     async def _async_commit(self, message_id: str, vote_timestamp: float) -> None:
         """Fire the legacy-compatible event once for the settled selection."""
+        pending = self._registry.pending(message_id)
+        person_entity_id = pending.person_entity_id if pending is not None else None
         committed, action = self._registry.commit(
             message_id, vote_timestamp, time.time()
         )
@@ -209,9 +219,12 @@ class WahaPollManager:
 
         await self._async_save()
         if action is not None:
+            context = await self._async_person_context(person_entity_id)
             self._hass.bus.async_fire(
                 EVENT_MOBILE_APP_NOTIFICATION_ACTION,
                 {"action": action},
+                EventOrigin.REMOTE,
+                context=context,
             )
 
     async def _async_save(self) -> None:
@@ -238,6 +251,23 @@ class WahaPollManager:
         except WahaError:
             return None
         return resolve_vote_lids(vote, mappings)
+
+    async def _async_person_context(
+        self, person_entity_id: str | None
+    ) -> Context | None:
+        """Resolve a linked Person's current active user for attribution."""
+        if person_entity_id is None:
+            return None
+        person_state = self._hass.states.get(person_entity_id)
+        if person_state is None:
+            return None
+        user_id = person_state.attributes.get(PersonEntityStateAttribute.USER_ID)
+        if not isinstance(user_id, str) or not user_id:
+            return None
+        user = await self._hass.auth.async_get_user(user_id)
+        if user is None or not user.is_active:
+            return None
+        return Context(user_id=user.id)
 
     def _record_rejected_vote(self, reason: PollVoteRejectionReason) -> None:
         """Record and log a rejection without identifiers or payload content."""

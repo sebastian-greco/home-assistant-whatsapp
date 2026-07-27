@@ -364,7 +364,13 @@ def test_pending_poll_storage_round_trip() -> None:
     options = polls.build_poll_options(
         [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
     )
-    original.register("poll-1", "393331234567@c.us", options, 5)
+    original.register(
+        "poll-1",
+        "393331234567@c.us",
+        options,
+        5,
+        person_entity_id="person.seba",
+    )
     vote = polls.parse_poll_vote(
         vote_payload(selected_options=["Cancel"], timestamp=123), "house"
     )
@@ -373,6 +379,10 @@ def test_pending_poll_storage_round_trip() -> None:
     restored = polls.PollRegistry()
     restored.load(original.as_dict())
 
+    pending = restored.pending("poll-1")
+    assert pending is not None
+    assert pending.person_entity_id == "person.seba"
+    assert "user_id" not in pending.as_dict()
     assert restored.commit("poll-1", 123, now=1005) == (True, "CANCEL")
 
 
@@ -398,3 +408,4 @@ def test_legacy_pending_poll_id_is_canonicalized_during_restore() -> None:
     pending = registry.pending("true_178563278901234@lid_A1B2C3D4")
     assert pending is not None
     assert pending.message_id == "A1B2C3D4"
+    assert pending.person_entity_id is None

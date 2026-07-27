@@ -5,6 +5,24 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-27
+
+### Added
+
+- Attribute settled WhatsApp poll actions to the active Home Assistant user
+  linked to the configured contact's optional Person association.
+- Mark WhatsApp poll action events with Home Assistant's remote event origin,
+  matching the Companion App webhook contract.
+
+### Privacy and compatibility
+
+- Persist only `person_entity_id` with pending poll correlation. Home Assistant
+  user IDs are resolved from the Person when a vote settles and are never
+  stored by the integration or added to event data.
+- Keep `context.user_id` unset for contacts without a Person, People without a
+  linked active Home Assistant user, missing Person entities, and legacy
+  pending polls created before this release.
+
 ## [1.2.2] - 2026-07-27
 
 ### Fixed
@@ -144,3 +162,4 @@ All notable changes are documented here. This project follows
 [1.2.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.0
 [1.2.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.1
 [1.2.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.2
+[1.3.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.0

@@ -52,6 +52,7 @@ from .const import (
     ATTR_TO,
     CONF_ADDON_SLUG,
     CONF_API_URL,
+    CONF_PERSON_ENTITY_ID,
     CONF_RECIPIENT,
     CONF_SESSION,
     CONF_WEBHOOK_ID,
@@ -286,7 +287,9 @@ async def _async_handle_send_message(call: ServiceCall) -> ServiceResponse:
 
 async def _async_handle_send_poll(call: ServiceCall) -> ServiceResponse:
     """Send an actionable poll to one configured individual contact."""
-    entry, recipient = _configured_recipient(call.hass, call.data[ATTR_ENTITY_ID])
+    entry, recipient, person_entity_id = _configured_recipient(
+        call.hass, call.data[ATTR_ENTITY_ID]
+    )
     try:
         options = build_poll_options(
             call.data[ATTR_ACTIONS], call.data[ATTR_NO_ACTION_TITLE]
@@ -303,6 +306,7 @@ async def _async_handle_send_poll(call: ServiceCall) -> ServiceResponse:
             result.chat_id,
             options,
             call.data[ATTR_SETTLE_SECONDS],
+            person_entity_id,
         )
     except PollValidationError as err:
         raise ServiceValidationError(
@@ -342,7 +346,7 @@ def _loaded_entry(hass: HomeAssistant, entry_id: str) -> WahaConfigEntry:
 
 def _configured_recipient(
     hass: HomeAssistant, entity_id: str
-) -> tuple[WahaConfigEntry, str]:
+) -> tuple[WahaConfigEntry, str, str | None]:
     """Resolve an integration-owned notify entity to its private recipient."""
     registry_entry = er.async_get(hass).async_get(entity_id)
     if (
@@ -365,7 +369,12 @@ def _configured_recipient(
             translation_key="invalid_notify_entity",
             translation_placeholders={"entity_id": entity_id},
         )
-    return entry, subentry.data[CONF_RECIPIENT]
+    person_entity_id = subentry.data.get(CONF_PERSON_ENTITY_ID)
+    return (
+        entry,
+        subentry.data[CONF_RECIPIENT],
+        person_entity_id if isinstance(person_entity_id, str) else None,
+    )
 
 
 def _poll_question(message: str, title: str | None) -> str:

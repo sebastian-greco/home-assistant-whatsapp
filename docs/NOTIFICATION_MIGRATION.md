@@ -84,6 +84,12 @@ conditions, timers, service calls, and follow-up messages in the existing
 action-handler automation. Add a state guard there if an old poll choice must
 be ignored after the workflow changes.
 
+For an individual WhatsApp contact associated with a Home Assistant Person,
+the event uses that Person's currently linked active user as
+`trigger.event.context.user_id`. No user ID is persisted or placed in event
+data; contacts without a linked user continue to produce a null user context.
+The event origin is `REMOTE`, matching Companion App webhook actions.
+
 WAHA webhooks are configured automatically. With the companion HAOS app the
 callback stays on the private app network and requires a SHA-512 HMAC; no
 public URL or manual webhook configuration is needed. For an external WAHA

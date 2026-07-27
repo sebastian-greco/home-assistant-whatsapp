@@ -65,6 +65,7 @@ class PendingPoll:
     chat_id: str
     options: dict[str, str | None]
     settle_seconds: float
+    person_entity_id: str | None = None
     latest_vote_timestamp: float | None = None
     selected_title: str | None = None
     commit_at: float | None = None
@@ -76,6 +77,7 @@ class PendingPoll:
             "chat_id": self.chat_id,
             "options": self.options,
             "settle_seconds": self.settle_seconds,
+            "person_entity_id": self.person_entity_id,
             "latest_vote_timestamp": self.latest_vote_timestamp,
             "selected_title": self.selected_title,
             "commit_at": self.commit_at,
@@ -88,6 +90,7 @@ class PendingPoll:
         chat_id = data.get("chat_id")
         raw_options = data.get("options")
         settle_seconds = data.get("settle_seconds")
+        person_entity_id = data.get("person_entity_id")
         if (
             not isinstance(message_id, str)
             or not message_id
@@ -95,6 +98,13 @@ class PendingPoll:
             or not chat_id
             or not isinstance(raw_options, dict)
             or not isinstance(settle_seconds, int | float)
+            or (
+                person_entity_id is not None
+                and (
+                    not isinstance(person_entity_id, str)
+                    or not person_entity_id.startswith("person.")
+                )
+            )
         ):
             return None
 
@@ -129,6 +139,7 @@ class PendingPoll:
             chat_id=chat_id,
             options=options,
             settle_seconds=float(settle_seconds),
+            person_entity_id=person_entity_id,
             latest_vote_timestamp=(
                 float(latest_timestamp) if latest_timestamp is not None else None
             ),
@@ -252,6 +263,7 @@ class PollRegistry:
         chat_id: str,
         options: Sequence[PollOption],
         settle_seconds: float,
+        person_entity_id: str | None = None,
     ) -> None:
         """Register one outbound poll by its WAHA message ID."""
         message_id = canonical_message_id(message_id)
@@ -260,6 +272,7 @@ class PollRegistry:
             chat_id=chat_id,
             options={option.title: option.action for option in options},
             settle_seconds=settle_seconds,
+            person_entity_id=person_entity_id,
         )
 
     def apply_vote(self, vote: PollVote, received_at: float) -> bool:
