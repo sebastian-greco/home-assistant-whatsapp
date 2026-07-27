@@ -5,6 +5,16 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-27
+
+### Fixed
+
+- Restore compatibility with Home Assistant 2026.7 by reading the stable
+  Person `user_id` state attribute without importing the newer
+  `PersonEntityStateAttribute` enum that is unavailable in that release.
+- Add a compatibility regression check preventing the integration from
+  depending on that unavailable Person module export again.
+
 ## [1.3.0] - 2026-07-27
 
 ### Added
@@ -163,3 +173,4 @@ All notable changes are documented here. This project follows
 [1.2.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.1
 [1.2.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.2
 [1.3.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.0
+[1.3.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.1

@@ -10,7 +10,6 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.person.const import PersonEntityStateAttribute
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, EventOrigin, HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -33,6 +32,7 @@ from .polls import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+PERSON_USER_ID_ATTRIBUTE = "user_id"
 
 
 class WahaPollManager:
@@ -261,7 +261,7 @@ class WahaPollManager:
         person_state = self._hass.states.get(person_entity_id)
         if person_state is None:
             return None
-        user_id = person_state.attributes.get(PersonEntityStateAttribute.USER_ID)
+        user_id = person_state.attributes.get(PERSON_USER_ID_ATTRIBUTE)
         if not isinstance(user_id, str) or not user_id:
             return None
         user = await self._hass.auth.async_get_user(user_id)

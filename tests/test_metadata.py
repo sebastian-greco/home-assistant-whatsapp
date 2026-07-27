@@ -119,7 +119,8 @@ def test_poll_events_attribute_linked_active_home_assistant_user() -> None:
     assert "person_entity_id: str | None" in polls
     assert '"person_entity_id": self.person_entity_id' in polls
     assert '"user_id"' not in polls
-    assert "PersonEntityStateAttribute.USER_ID" in manager
+    assert 'PERSON_USER_ID_ATTRIBUTE = "user_id"' in manager
+    assert "homeassistant.components.person.const" not in manager
     assert "self._hass.auth.async_get_user(user_id)" in manager
     assert "not user.is_active" in manager
     assert "Context(user_id=user.id)" in manager
