@@ -124,7 +124,8 @@ def test_poll_events_attribute_linked_active_home_assistant_user() -> None:
     assert "self._hass.auth.async_get_user(user_id)" in manager
     assert "not user.is_active" in manager
     assert "Context(user_id=user.id)" in manager
-    assert "EventOrigin.REMOTE" in manager
+    assert "EventOrigin" not in manager
+    assert "context=context" in manager
 
 
 def test_poll_webhook_is_private_and_authenticated() -> None:

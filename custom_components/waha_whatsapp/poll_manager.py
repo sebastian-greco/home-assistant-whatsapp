@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Context, EventOrigin, HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .api import WahaClient, WahaError
@@ -223,7 +223,6 @@ class WahaPollManager:
             self._hass.bus.async_fire(
                 EVENT_MOBILE_APP_NOTIFICATION_ACTION,
                 {"action": action},
-                EventOrigin.REMOTE,
                 context=context,
             )
 

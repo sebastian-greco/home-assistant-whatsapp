@@ -5,6 +5,19 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-28
+
+### Fixed
+
+- Restore actionable poll events on Home Assistant 2026.7 by using Home
+  Assistant's default local event origin instead of the unavailable
+  `EventOrigin.REMOTE` member.
+- Preserve linked Person attribution through `context.user_id`; event origin
+  does not affect the attributed user context.
+- Add a compatibility regression check preventing poll dispatch from
+  depending on `EventOrigin` members that are absent from supported Home
+  Assistant releases.
+
 ## [1.3.1] - 2026-07-27
 
 ### Fixed
@@ -174,3 +187,4 @@ All notable changes are documented here. This project follows
 [1.2.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.2
 [1.3.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.0
 [1.3.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.1
+[1.3.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.2
