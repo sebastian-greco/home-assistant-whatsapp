@@ -163,6 +163,26 @@ class WahaClient:
         data = await self._request("POST", "/api/sendPoll", json=payload)
         return WahaMessage(id=_message_id(data), chat_id=chat_id)
 
+    async def async_resolve_lid(self, lid: str) -> str | None:
+        """Resolve a WhatsApp LID to its phone-number direct-chat ID."""
+        session = quote(self.session_name, safe="")
+        encoded_lid = quote(lid, safe="")
+        data = await self._request("GET", f"/api/{session}/lids/{encoded_lid}")
+        if not isinstance(data, dict):
+            raise WahaResponseError("WAHA returned invalid LID mapping data")
+
+        phone_number = data.get("pn")
+        if phone_number is None:
+            return None
+        if not isinstance(phone_number, str):
+            raise WahaResponseError("WAHA returned an invalid LID phone number")
+        try:
+            return normalize_chat_id(phone_number)
+        except ValueError as err:
+            raise WahaResponseError(
+                "WAHA returned an invalid LID phone number"
+            ) from err
+
     async def async_ensure_webhook(self, url: str, hmac_key: str) -> bool:
         """Add or update our poll webhook without changing unrelated webhooks."""
         session_path = f"/api/sessions/{quote(self.session_name, safe='')}"

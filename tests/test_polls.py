@@ -199,23 +199,102 @@ def test_registry_rejects_wrong_recipient_unknown_option_and_old_vote() -> None:
     assert not registry.apply_vote(old, received_at=1001)
 
 
-def test_registry_accepts_gows_lid_sender_for_exact_direct_poll_destination() -> None:
-    """GOWS may identify a direct recipient by LID instead of phone-number JID."""
+def test_registry_correlates_gows_poll_after_verified_lid_resolution() -> None:
+    """GOWS may change both the ID envelope and chat identity to a LID."""
     registry = polls.PollRegistry()
     options = polls.build_poll_options(
         [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
     )
-    registry.register("poll-1", "393331234567@c.us", options, 5)
+    registry.register(
+        "true_393331234567@c.us_A1B2C3D4",
+        "393331234567@c.us",
+        options,
+        5,
+    )
     gows_vote = polls.parse_poll_vote(
         vote_payload(
             selected_options=["Cancel"],
             sender="178563278901234@lid",
+            poll_chat_id="178563278901234@lid",
+            message_id="true_178563278901234@lid_A1B2C3D4",
+        ),
+        "house",
+    )
+    resolved_vote = polls.resolve_vote_lids(
+        gows_vote,
+        {"178563278901234@lid": "393331234567@c.us"},
+    )
+
+    assert resolved_vote is not None
+    assert registry.apply_vote_with_reason(resolved_vote, received_at=1000) is None
+    assert registry.commit("true_178563278901234@lid_A1B2C3D4", 100, now=1005) == (
+        True,
+        "CANCEL",
+    )
+
+
+def test_registry_does_not_trust_an_unverified_lid() -> None:
+    """A syntactically valid LID still requires WAHA's phone-number mapping."""
+    vote = polls.parse_poll_vote(
+        vote_payload(
+            selected_options=["Cancel"],
+            sender="178563278901234@lid",
+            poll_chat_id="178563278901234@lid",
         ),
         "house",
     )
 
-    assert registry.apply_vote_with_reason(gows_vote, received_at=1000) is None
-    assert registry.commit("poll-1", 100, now=1005) == (True, "CANCEL")
+    assert polls.resolve_vote_lids(vote, {}) is None
+
+
+def test_registry_rejects_lid_mapped_to_another_contact() -> None:
+    """An authoritative mapping still has to equal the configured recipient."""
+    registry = polls.PollRegistry()
+    options = polls.build_poll_options(
+        [{"action": "CANCEL", "title": "Cancel"}], "Keep scheduled"
+    )
+    registry.register(
+        "true_393331234567@c.us_A1B2C3D4",
+        "393331234567@c.us",
+        options,
+        5,
+    )
+    vote = polls.parse_poll_vote(
+        vote_payload(
+            selected_options=["Cancel"],
+            sender="178563278901234@lid",
+            poll_chat_id="178563278901234@lid",
+            message_id="true_178563278901234@lid_A1B2C3D4",
+        ),
+        "house",
+    )
+    resolved_vote = polls.resolve_vote_lids(
+        vote,
+        {"178563278901234@lid": "390000000000@c.us"},
+    )
+
+    assert resolved_vote is not None
+    assert (
+        registry.apply_vote_with_reason(resolved_vote, received_at=1000)
+        is polls.PollVoteRejectionReason.POLL_CHAT_MISMATCH
+    )
+
+
+@pytest.mark.parametrize(
+    ("message_id", "expected"),
+    [
+        ("true_393331234567@c.us_A1B2C3D4", "A1B2C3D4"),
+        ("true_178563278901234@lid_A1B2C3D4", "A1B2C3D4"),
+        (
+            "false_120363000000@g.us_A1B2C3D4_393331234567@c.us",
+            "A1B2C3D4",
+        ),
+        ("A1B2C3D4", "A1B2C3D4"),
+    ],
+)
+def test_canonical_message_id_uses_engine_stable_token(message_id, expected) -> None:
+    """WAHA route envelopes do not change the underlying WhatsApp message ID."""
+    assert polls.canonical_message_id(message_id) == expected
 
 
 @pytest.mark.parametrize(
@@ -295,3 +374,27 @@ def test_pending_poll_storage_round_trip() -> None:
     restored.load(original.as_dict())
 
     assert restored.commit("poll-1", 123, now=1005) == (True, "CANCEL")
+
+
+def test_legacy_pending_poll_id_is_canonicalized_during_restore() -> None:
+    """Updating keeps pre-1.2.2 polls correlatable across ID envelopes."""
+    registry = polls.PollRegistry()
+    registry.load(
+        {
+            "polls": [
+                {
+                    "message_id": "true_393331234567@c.us_A1B2C3D4",
+                    "chat_id": "393331234567@c.us",
+                    "options": {"Cancel": "CANCEL", "Keep scheduled": None},
+                    "settle_seconds": 5,
+                    "latest_vote_timestamp": None,
+                    "selected_title": None,
+                    "commit_at": None,
+                }
+            ]
+        }
+    )
+
+    pending = registry.pending("true_178563278901234@lid_A1B2C3D4")
+    assert pending is not None
+    assert pending.message_id == "A1B2C3D4"

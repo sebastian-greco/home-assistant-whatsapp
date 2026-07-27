@@ -257,12 +257,14 @@ the integration deliberately fires no action and sends no automatic message.
 Sanitized warnings and per-reason counters appear in Home Assistant diagnostics
 without message IDs, contact identifiers, phone numbers, or poll contents.
 
-GOWS can report the voter with WhatsApp's alternate `@lid` identity even when
-the configured direct recipient uses a phone-number `@c.us` chat ID. The
-integration accepts that representation only for an otherwise fully correlated
-direct-message poll: the private HMAC callback, session, exact outgoing message
-ID, outgoing direction, and exact destination chat must still match. It does
-not relax recipient matching for another phone-number JID or for group polls.
+GOWS can report the poll and voter with WhatsApp's alternate `@lid` identity
+even when the poll was sent to a phone-number `@c.us` chat ID. WAHA's serialized
+message-ID chat envelope can change with that identity, so the integration
+correlates its engine-stable WhatsApp message token and then resolves every LID
+through WAHA's session mapping API. The mapped voter and poll destination must
+both equal the configured phone-number chat. The private HMAC callback, session,
+outgoing direction, option, and timestamp checks also remain required; another
+phone-number JID, an unmapped LID, or a group poll is never accepted.
 
 ### Use the same router data as Companion App actions
 

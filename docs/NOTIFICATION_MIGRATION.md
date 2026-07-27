@@ -93,8 +93,9 @@ If a poll vote cannot be decrypted or fails correlation, no event is fired and
 no automatic retry or confirmation is sent. Check Home Assistant logs and the
 integration's diagnostics for sanitized failure and rejection-reason counters;
 they contain no phone numbers, message IDs, or poll contents. Direct votes from
-GOWS are compatible with WhatsApp's alternate `@lid` voter identity while the
-poll destination remains strictly matched to the configured contact.
+GOWS are compatible when WAHA changes the sent `@c.us` message-ID envelope and
+webhook identities to `@lid`: the stable message token is correlated and WAHA's
+LID mapping must resolve both identities to the configured phone-number chat.
 
 ## What still does not map
 

@@ -23,6 +23,7 @@ class PollVoteRejectionReason(StrEnum):
     INVALID_FIELDS = "invalid_fields"
     MULTIPLE_SELECTIONS = "multiple_selections"
     UNKNOWN_POLL = "unknown_poll"
+    LID_RESOLUTION_FAILED = "lid_resolution_failed"
     POLL_CHAT_MISMATCH = "poll_chat_mismatch"
     SENDER_IDENTITY_MISMATCH = "sender_identity_mismatch"
     STALE_VOTE = "stale_vote"
@@ -124,7 +125,7 @@ class PendingPoll:
             return None
 
         return cls(
-            message_id=message_id,
+            message_id=canonical_message_id(message_id),
             chat_id=chat_id,
             options=options,
             settle_seconds=float(settle_seconds),
@@ -253,6 +254,7 @@ class PollRegistry:
         settle_seconds: float,
     ) -> None:
         """Register one outbound poll by its WAHA message ID."""
+        message_id = canonical_message_id(message_id)
         self._polls[message_id] = PendingPoll(
             message_id=message_id,
             chat_id=chat_id,
@@ -268,12 +270,12 @@ class PollRegistry:
         self, vote: PollVote, received_at: float
     ) -> PollVoteRejectionReason | None:
         """Apply a vote or return a non-sensitive reason for rejecting it."""
-        pending = self._polls.get(vote.message_id)
+        pending = self._polls.get(canonical_message_id(vote.message_id))
         if pending is None:
             return PollVoteRejectionReason.UNKNOWN_POLL
         if not _same_chat_id(vote.poll_chat_id, pending.chat_id):
             return PollVoteRejectionReason.POLL_CHAT_MISMATCH
-        if not _valid_direct_vote_sender(vote.sender, pending.chat_id):
+        if not _same_chat_id(vote.sender, pending.chat_id):
             return PollVoteRejectionReason.SENDER_IDENTITY_MISMATCH
         if (
             pending.latest_vote_timestamp is not None
@@ -297,7 +299,7 @@ class PollRegistry:
 
     def pending(self, message_id: str) -> PendingPoll | None:
         """Return pending state for scheduling and diagnostics."""
-        return self._polls.get(message_id)
+        return self._polls.get(canonical_message_id(message_id))
 
     def pending_polls(self) -> tuple[PendingPoll, ...]:
         """Return a stable snapshot for restoring settle timers."""
@@ -307,6 +309,7 @@ class PollRegistry:
         self, message_id: str, vote_timestamp: float, now: float
     ) -> tuple[bool, str | None]:
         """Consume a stable vote and return its optional action ID."""
+        message_id = canonical_message_id(message_id)
         pending = self._polls.get(message_id)
         if (
             pending is None
@@ -343,20 +346,41 @@ def _same_chat_id(left: str, right: str) -> bool:
     return left.casefold() == right.casefold()
 
 
-def _valid_direct_vote_sender(sender: str, destination: str) -> bool:
-    """Match a direct recipient while allowing WhatsApp's alternate LID."""
-    if _same_chat_id(sender, destination):
-        return True
-    return _is_phone_chat_id(destination) and _is_lid_chat_id(sender)
+def canonical_message_id(message_id: str) -> str:
+    """Extract the engine-stable token from a serialized WAHA message ID."""
+    parts = message_id.split("_")
+    if (
+        len(parts) in (3, 4)
+        and parts[0].casefold() in {"true", "false"}
+        and "@" in parts[1]
+        and parts[2]
+    ):
+        return parts[2]
+    return message_id
 
 
-def _is_phone_chat_id(value: str) -> bool:
-    """Return whether a chat ID is the direct phone-number form used by WAHA."""
-    local, separator, domain = value.rpartition("@")
-    return bool(separator and local.isdecimal() and domain.casefold() == "c.us")
+def resolve_vote_lids(vote: PollVote, mappings: Mapping[str, str]) -> PollVote | None:
+    """Replace LID identities using verified WAHA phone-number mappings."""
+
+    def _resolve(value: str) -> str | None:
+        if not is_lid_chat_id(value):
+            return value
+        return mappings.get(lid_mapping_id(value).casefold())
+
+    sender = _resolve(vote.sender)
+    poll_chat_id = _resolve(vote.poll_chat_id)
+    if sender is None or poll_chat_id is None:
+        return None
+    return PollVote(
+        message_id=vote.message_id,
+        sender=sender,
+        poll_chat_id=poll_chat_id,
+        selected_title=vote.selected_title,
+        timestamp=vote.timestamp,
+    )
 
 
-def _is_lid_chat_id(value: str) -> bool:
+def is_lid_chat_id(value: str) -> bool:
     """Return whether a chat ID is a syntactically valid WhatsApp LID."""
     local, separator, domain = value.rpartition("@")
     if not separator or domain.casefold() != "lid":
@@ -365,3 +389,10 @@ def _is_lid_chat_id(value: str) -> bool:
     return account.isdecimal() and (
         not device_separator or (device.isdecimal() and ":" not in device)
     )
+
+
+def lid_mapping_id(value: str) -> str:
+    """Remove an optional device suffix before querying WAHA's LID API."""
+    local, _separator, _domain = value.rpartition("@")
+    account = local.partition(":")[0]
+    return f"{account}@lid"

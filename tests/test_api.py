@@ -163,6 +163,31 @@ async def test_send_single_selection_poll_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolve_lid_uses_session_mapping_api() -> None:
+    """A GOWS LID is verified against WAHA before recipient correlation."""
+    session = FakeSession(
+        FakeResponse(
+            200,
+            {"lid": "178563278901234@lid", "pn": "393331234567@c.us"},
+        )
+    )
+
+    result = await make_client(session).async_resolve_lid("178563278901234@lid")
+
+    assert result == "393331234567@c.us"
+    assert session.requests[0]["method"] == "GET"
+    assert session.requests[0]["url"].endswith("/api/house/lids/178563278901234%40lid")
+
+
+@pytest.mark.asyncio
+async def test_unmapped_lid_is_not_treated_as_a_recipient() -> None:
+    """WAHA must provide a phone-number mapping for an alternate identity."""
+    session = FakeSession(FakeResponse(200, {"lid": "178563278901234@lid", "pn": None}))
+
+    assert await make_client(session).async_resolve_lid("178563278901234@lid") is None
+
+
+@pytest.mark.asyncio
 async def test_ensure_webhook_preserves_unrelated_session_config() -> None:
     """Automatic poll setup merges rather than replacing user webhooks."""
     existing = {"url": "http://example.local/hook", "events": ["message"]}

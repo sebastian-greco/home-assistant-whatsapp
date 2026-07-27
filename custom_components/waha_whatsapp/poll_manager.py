@@ -14,12 +14,18 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from .api import WahaClient, WahaError
 from .const import EVENT_MOBILE_APP_NOTIFICATION_ACTION
 from .polls import (
     PollOption,
     PollRegistry,
+    PollVote,
     PollVoteRejectionReason,
+    canonical_message_id,
+    is_lid_chat_id,
+    lid_mapping_id,
     parse_poll_vote_with_reason,
+    resolve_vote_lids,
     verify_hmac_sha512,
 )
 
@@ -35,13 +41,14 @@ class WahaPollManager:
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        session_name: str,
+        client: WahaClient,
         webhook_secret: str,
     ) -> None:
         """Initialize one config entry's actionable poll manager."""
         self._hass = hass
         self._entry = entry
-        self._session_name = session_name
+        self._client = client
+        self._session_name = client.session_name
         self._webhook_secret = webhook_secret
         self._registry = PollRegistry()
         self._store = Store[dict[str, Any]](
@@ -128,18 +135,29 @@ class WahaPollManager:
             return
 
         assert vote is not None
+        pending = self._registry.pending(vote.message_id)
+        if pending is None:
+            self._record_rejected_vote(PollVoteRejectionReason.UNKNOWN_POLL)
+            return
+
+        vote = await self._async_resolve_vote_lids(vote)
+        if vote is None:
+            self._record_rejected_vote(PollVoteRejectionReason.LID_RESOLUTION_FAILED)
+            return
+
         rejection_reason = self._registry.apply_vote_with_reason(vote, time.time())
         if rejection_reason is not None:
             self._record_rejected_vote(rejection_reason)
             return
 
-        previous = self._timers.pop(vote.message_id, None)
+        message_id = canonical_message_id(vote.message_id)
+        previous = self._timers.pop(message_id, None)
         if previous is not None:
             previous.cancel()
 
-        pending = self._registry.pending(vote.message_id)
+        pending = self._registry.pending(message_id)
         if pending is not None and pending.commit_at is not None:
-            self._schedule_commit(vote.message_id, vote.timestamp, pending.commit_at)
+            self._schedule_commit(message_id, vote.timestamp, pending.commit_at)
         await self._async_save()
 
     @staticmethod
@@ -199,6 +217,27 @@ class WahaPollManager:
     async def _async_save(self) -> None:
         """Write correlation state immediately so restarts do not lose votes."""
         await self._store.async_save(self._registry.as_dict())
+
+    async def _async_resolve_vote_lids(self, vote: PollVote) -> PollVote | None:
+        """Resolve alternate direct-chat identities through WAHA itself."""
+        lids = {
+            lid_mapping_id(chat_id)
+            for chat_id in (vote.sender, vote.poll_chat_id)
+            if is_lid_chat_id(chat_id)
+        }
+        if not lids:
+            return vote
+
+        mappings: dict[str, str] = {}
+        try:
+            for lid in lids:
+                phone_chat_id = await self._client.async_resolve_lid(lid)
+                if phone_chat_id is None:
+                    return None
+                mappings[lid.casefold()] = phone_chat_id
+        except WahaError:
+            return None
+        return resolve_vote_lids(vote, mappings)
 
     def _record_rejected_vote(self, reason: PollVoteRejectionReason) -> None:
         """Record and log a rejection without identifiers or payload content."""

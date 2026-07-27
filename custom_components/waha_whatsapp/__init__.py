@@ -209,7 +209,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
     poll_manager = WahaPollManager(
         hass,
         entry,
-        client.session_name,
+        client,
         entry.data[CONF_WEBHOOK_SECRET],
     )
     await poll_manager.async_start()

@@ -5,6 +5,24 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-07-27
+
+### Fixed
+
+- Correlate GOWS poll votes by the engine-stable WhatsApp message token when
+  WAHA changes the serialized message-ID chat envelope from `@c.us` on send to
+  `@lid` on the vote webhook.
+- Resolve webhook LIDs through WAHA's session LID mapping API before comparing
+  the voter and poll destination with the configured phone-number chat.
+- Canonicalize persisted pending poll IDs during restore so polls created by
+  1.2.0 or 1.2.1 remain correlatable after updating.
+
+### Security
+
+- Require WAHA to map every alternate LID to the configured `@c.us` contact.
+  Unknown, unmapped, or mismatched LIDs continue to reject the vote without
+  firing a Home Assistant event.
+
 ## [1.2.1] - 2026-07-27
 
 ### Fixed
@@ -125,3 +143,4 @@ All notable changes are documented here. This project follows
 [1.1.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.1.0
 [1.2.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.0
 [1.2.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.1
+[1.2.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.2.2
