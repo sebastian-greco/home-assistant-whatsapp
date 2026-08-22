@@ -41,7 +41,7 @@ class WahaNotifyEntity(NotifyEntity):
         self._attr_unique_id = (
             f"{config_entry.unique_id}_{subentry.unique_id or subentry.subentry_id}"
         )
-        self._attr_device_info = _device_info(config_entry)
+        self._attr_device_info = _device_info(config_entry, subentry)
         self._attr_extra_state_attributes = contact_state_attributes(subentry.data)
 
     @property
@@ -74,11 +74,25 @@ async def _async_send_to_recipient(
     )
 
 
-def _device_info(config_entry: WahaConfigEntry) -> DeviceInfo:
-    """Describe the shared local WAHA service."""
+def _device_info(
+    config_entry: WahaConfigEntry, subentry: ConfigSubentry
+) -> DeviceInfo:
+    """Describe the local WAHA service for one recipient subentry.
+
+    Home Assistant 2026.8 associates a device with a single config
+    subentry. Recipient entities are individual subentries, so sharing the
+    old account-level identifier makes the device move between recipients
+    during entity registration.
+    """
     server = config_entry.runtime_data.server
+    subentry_id = subentry.unique_id or subentry.subentry_id
     return DeviceInfo(
-        identifiers={(DOMAIN, config_entry.unique_id or config_entry.entry_id)},
+        identifiers={
+            (
+                DOMAIN,
+                f"{config_entry.unique_id or config_entry.entry_id}:{subentry_id}",
+            )
+        },
         name="WAHA",
         manufacturer="WAHA",
         model=f"WhatsApp HTTP API ({server.engine or 'unknown engine'})",

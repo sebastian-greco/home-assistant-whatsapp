@@ -142,7 +142,7 @@ wheels = [
 
 [[package]]
 name = "home-assistant-whatsapp"
-version = "1.3.2"
+version = "1.3.3"
 source = { virtual = "." }
 
 [package.dev-dependencies]

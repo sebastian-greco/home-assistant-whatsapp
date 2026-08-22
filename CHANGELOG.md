@@ -5,6 +5,13 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-08-23
+
+### Fixed
+
+- Keep individual WhatsApp notify entities available on Home Assistant 2026.8
+  by scoping each WAHA device to its recipient config subentry.
+
 ## [1.3.2] - 2026-07-28
 
 ### Fixed
@@ -188,3 +195,4 @@ All notable changes are documented here. This project follows
 [1.3.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.0
 [1.3.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.1
 [1.3.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.2
+[1.3.3]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.3

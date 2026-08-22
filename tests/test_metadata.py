@@ -64,6 +64,18 @@ def test_notify_entities_share_stable_waha_device_name() -> None:
     assert "name=config_entry.title" not in source
 
 
+def test_notify_devices_are_scoped_to_recipient_subentries() -> None:
+    """Home Assistant 2026.8 must not move one contact's device to another."""
+    source = (INTEGRATION / "notify.py").read_text()
+
+    assert "_device_info(config_entry, subentry)" in source
+    assert "subentry.unique_id or subentry.subentry_id" in source
+    assert (
+        "f\"{config_entry.unique_id or config_entry.entry_id}:{subentry_id}\""
+        in source
+    )
+
+
 def test_notify_platform_has_only_individual_contacts() -> None:
     """The notify platform does not create household-group entities."""
     source = (INTEGRATION / "notify.py").read_text()
