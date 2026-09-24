@@ -131,6 +131,7 @@ class WahaClient:
         text: str,
         *,
         link_preview: bool = True,
+        reply_to_message_id: str | None = None,
     ) -> WahaMessage:
         """Send a free-form WhatsApp text message."""
         chat_id = normalize_chat_id(recipient)
@@ -140,6 +141,8 @@ class WahaClient:
             "text": text,
             "linkPreview": link_preview,
         }
+        if reply_to_message_id is not None:
+            payload["reply_to"] = reply_to_message_id
         data = await self._request("POST", "/api/sendText", json=payload)
         return WahaMessage(id=_message_id(data), chat_id=chat_id)
 
@@ -184,7 +187,7 @@ class WahaClient:
             ) from err
 
     async def async_ensure_webhook(self, url: str, hmac_key: str) -> bool:
-        """Add or update our poll webhook without changing unrelated webhooks."""
+        """Add or update our channel webhook without changing unrelated webhooks."""
         session_path = f"/api/sessions/{quote(self.session_name, safe='')}"
         data = await self._request("GET", session_path)
         if not isinstance(data, dict):
@@ -206,7 +209,7 @@ class WahaClient:
 
         desired = {
             "url": url,
-            "events": ["poll.vote", "poll.vote.failed"],
+            "events": ["poll.vote", "poll.vote.failed", "message", "message.reaction"],
             "hmac": {"key": hmac_key},
             "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
         }

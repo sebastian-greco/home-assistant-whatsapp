@@ -124,6 +124,12 @@
     },
     "invalid_recipient": {
       "message": "Invalid WhatsApp phone number: {error}"
+    },
+    "invalid_conversation": {
+      "message": "This WhatsApp conversation is not a configured contact or is no longer available."
+    },
+    "invalid_reply_target": {
+      "message": "The quoted WhatsApp message is unknown or has expired. Send without a reply target instead."
     }
   },
   "services": {
@@ -182,6 +188,24 @@
         }
       },
       "name": "Send actionable poll"
+    },
+    "send_to_conversation": {
+      "description": "Send text to a configured WhatsApp conversation using its opaque conversation ID from a waha_whatsapp_event.",
+      "fields": {
+        "conversation_id": {
+          "description": "Conversation ID from a WAHA WhatsApp event. Does not contain a phone number.",
+          "name": "Conversation"
+        },
+        "message": {
+          "description": "Text to send to the same WhatsApp chat.",
+          "name": "Message"
+        },
+        "reply_to_message_id": {
+          "description": "Optional message ID from an event to quote in WhatsApp. Omit to send a normal message.",
+          "name": "Quote message"
+        }
+      },
+      "name": "Send to conversation"
     }
   }
 }

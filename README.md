@@ -24,11 +24,13 @@ and understand that WhatsApp can restrict it.
 - Automatic, private discovery of the HAOS app by the HACS integration.
 - Manual connection support for WAHA running elsewhere on the network.
 - A direct action for sending to an arbitrary phone number.
+- Structured events for inbound direct messages and reactions from configured
+  contacts, plus a text action that replies to the same conversation.
 - QR linking, session lifecycle controls, diagnostics, and persistent backups.
 
-Free-form inbound messages, replies, access provisioning, and commands are
-intentionally future phases. This release receives only authenticated WAHA
-poll-vote events for polls that the integration sent and is still tracking.
+Group chats, voice transcription, access provisioning, and command execution
+are future phases. Inbound messages never run Home Assistant actions by
+themselves; an automation or conversation agent must explicitly consume them.
 
 ## Requirements
 
@@ -246,7 +248,7 @@ and allows one shared action handler to identify who responded. The integration
 stores only `person_entity_id` with the pending poll; it resolves the Person's
 current user when the vote settles and never includes the user ID in event
 data. Contacts without a linked active user still fire the same action with a
-null `context.user_id`. WhatsApp responses use the `REMOTE` event origin.
+null `context.user_id`. WhatsApp responses use Home Assistant's local event origin.
 
 The five-second correction window handles a quick misclick: a newer vote
 replaces the earlier choice and restarts the timer. A poll is consumed after
@@ -254,8 +256,9 @@ its first settled choice, including the non-triggering option, so later edits
 cannot fire a second event.
 
 The integration automatically registers a private Home Assistant webhook and
-adds it to the configured WAHA session for `poll.vote` and
-`poll.vote.failed`. HAOS app installations use only the internal app network;
+adds it to the configured WAHA session for `poll.vote`, `poll.vote.failed`,
+`message`, and `message.reaction`. HAOS app installations use only the internal
+app network;
 there is no port forwarding, cloud callback, or manual webhook setup. Every
 request must have WAHA's SHA-512 HMAC signature, and the integration also
 correlates the poll message ID, session, and configured recipient before
@@ -310,6 +313,99 @@ Harmless mobile-only action fields can remain in the dictionaries; the
 WhatsApp bridge uses only `action` and `title`. Text-input/`REPLY` and `URI`
 actions are rejected because a poll cannot preserve those semantics. The
 router still decides whether to send to the Companion App, WhatsApp, or both.
+
+## Receive a WhatsApp message
+
+The integration publishes `waha_whatsapp_event` for direct messages and
+reactions from configured contacts. A new message does not need to reply to a
+notification. Unknown senders and group chats are not published in this
+version. Receiving a message never executes a Home Assistant action by
+itself. Events more than one hour old, or more than five minutes in the
+future, are discarded to prevent stale history from acting like a new
+request after a reconnect. If WAHA runs on another machine, keep its clock
+synchronized with Home Assistant's.
+
+An inbound text event has this shape (IDs are opaque, not phone numbers):
+
+```yaml
+event_type: waha_whatsapp_event
+data:
+  schema_version: 1
+  event_id: evt_opaque_123
+  type: message.received
+  conversation_id: direct_opaque_456
+  conversation_type: direct
+  sender:
+    notify_entity_id: notify.waha_seba
+    person_entity_id: person.seba # Omitted if no Person is associated
+  message:
+    id: msg_opaque_abc
+    kind: text
+    text: ping
+```
+
+The event also includes `config_entry_id`, `occurred_at`, and an opaque
+`sender.contact_id`; `message.in_reply_to` is present when WAHA supplies a
+quoted-message ID. For audio, image, or file messages, `kind` identifies the
+type but media is not downloaded and no media URL is exposed. Reactions use
+`type: reaction.added` or `reaction.removed`, with a `reaction` object that
+contains an emoji and opaque target message ID. Reactions do not trigger
+actions automatically. Listen for the event under **Developer tools → Events**
+to inspect your installation's exact payload.
+
+This opt-in automation is a safe first test. Replace the entity ID with your
+configured contact's notify entity:
+
+```yaml
+alias: WAHA ping test
+triggers:
+  - trigger: event
+    event_type: waha_whatsapp_event
+    event_data:
+      type: message.received
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.event.data.sender.notify_entity_id == 'notify.waha_seba'
+         and trigger.event.data.message.kind == 'text'
+         and trigger.event.data.message.text | trim | lower == 'ping' }}
+actions:
+  - action: waha_whatsapp.send_to_conversation
+    data:
+      conversation_id: "{{ trigger.event.data.conversation_id }}"
+      message: pong
+```
+
+`send_to_conversation` can be used by any automation or integration that has a
+current `conversation_id`. It sends text to that configured contact without
+placing their phone number in YAML. Pass `reply_to_message_id` from an inbound
+event if you want WhatsApp to quote that particular message; omit it for a
+normal message. Quoted-message IDs are retained for a bounded period, while
+plain sending remains available as long as the contact is configured.
+Changing a contact's phone number creates a new conversation ID; old IDs are
+rejected rather than silently sending to the replacement number.
+The event bus is best effort, not a durable inbox: WAHA retries are
+deduplicated within a bounded window, but delivery and exactly-once execution
+are not guaranteed. Consumers performing important actions should use the
+event ID to make their work idempotent. Message text can appear in Home
+Assistant automation traces, so treat those traces as private.
+If the channel's private state cannot be restored at startup, existing
+notifications and polls still load while the channel uses temporary
+in-memory tracking; diagnostics report when this fallback is active. Home
+Assistant can log some storage write failures without notifying the
+integration, so this flag is not a guarantee of durable writes.
+
+An AI agent can consume the same event with an explicitly enabled automation:
+pass `message.text` to Home Assistant's `conversation.process`, then send
+`agent_response.response.speech.plain.speech` to the event's
+`conversation_id`. Allowlist the contacts and agent you intend to use before
+doing this: a conversation agent may have permission to control devices.
+The agent's own memory `conversation_id` is separate from the WhatsApp routing
+ID and must be stored separately if you want multi-turn context. See the
+[channel design](docs/WHATSAPP_CHANNEL_DESIGN.md) for the event model and
+future voice/group direction. After updating, follow the
+[HAOS verification checklist](docs/V1_4_0_HA_TEST.md) before connecting an
+agent or changing any safety-sensitive automations.
 
 A generic opt-in broadcast to every configured contact is a possible separate
 feature. It is not a household group and is not included in the current

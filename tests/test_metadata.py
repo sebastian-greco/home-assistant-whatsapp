@@ -30,9 +30,13 @@ def test_json_metadata_is_valid() -> None:
 
 
 def test_service_metadata_matches_actions() -> None:
-    """Free-form and actionable poll actions have editor metadata."""
+    """All public WAHA actions have editor metadata."""
     services = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
-    assert set(services) == {"send_message", "send_poll"}
+    assert set(services) == {
+        "send_message",
+        "send_poll",
+        "send_to_conversation",
+    }
 
 
 def test_recipient_flow_uses_home_assistant_people() -> None:
@@ -71,8 +75,7 @@ def test_notify_devices_are_scoped_to_recipient_subentries() -> None:
     assert "_device_info(config_entry, subentry)" in source
     assert "subentry.unique_id or subentry.subentry_id" in source
     assert (
-        "f\"{config_entry.unique_id or config_entry.entry_id}:{subentry_id}\""
-        in source
+        'f"{config_entry.unique_id or config_entry.entry_id}:{subentry_id}"' in source
     )
 
 
@@ -160,6 +163,25 @@ def test_poll_secrets_are_redacted_from_diagnostics() -> None:
     assert "TO_REDACT" in diagnostics
     assert '"rejected_votes"' in diagnostics
     assert '"rejection_reasons"' in diagnostics
+
+
+def test_bidirectional_channel_reuses_private_webhook() -> None:
+    """New message handling must not bypass poll webhook authentication."""
+    integration = (INTEGRATION / "__init__.py").read_text()
+    api = (INTEGRATION / "api.py").read_text()
+    notify = (INTEGRATION / "notify.py").read_text()
+    diagnostics = (INTEGRATION / "diagnostics.py").read_text()
+
+    assert "SERVICE_SEND_TO_CONVERSATION" in integration
+    assert "_async_handle_send_to_conversation" in integration
+    assert '"message.reaction"' in api
+    assert '"message"' in api
+    assert "verify_signature(raw_body, signature)" in integration
+    assert "MAX_WEBHOOK_BODY_BYTES" in integration
+    assert "await inbound_manager.async_handle_payload(payload)" in integration
+    assert "await registry.async_remember_message(" in notify
+    assert "contact.conversation_id" in notify
+    assert '"inbound_channel"' in diagnostics
 
 
 def test_actionable_poll_responsibilities_are_documented() -> None:

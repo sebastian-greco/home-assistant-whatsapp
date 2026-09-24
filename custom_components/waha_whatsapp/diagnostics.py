@@ -36,6 +36,15 @@ async def async_get_config_entry_diagnostics(
             ),
             "webhook_configured": True,
         },
+        "inbound_channel": {
+            "accepted": entry.runtime_data.inbound_manager.accepted_count,
+            "rejected": entry.runtime_data.inbound_manager.rejected_event_count,
+            "rejection_reasons": (entry.runtime_data.inbound_manager.rejection_reasons),
+            "persistence_available": (
+                entry.runtime_data.channel_registry.persistence_available
+            ),
+            "webhook_configured": True,
+        },
         "recipients": [
             {
                 "title": subentry.title,

@@ -26,9 +26,13 @@ ATTR_ACTIONS: Final = "actions"
 ATTR_ENTITY_ID: Final = "entity_id"
 ATTR_NO_ACTION_TITLE: Final = "no_action_title"
 ATTR_SETTLE_SECONDS: Final = "settle_seconds"
+ATTR_CONVERSATION_ID: Final = "conversation_id"
+ATTR_REPLY_TO_MESSAGE_ID: Final = "reply_to_message_id"
 
 SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_POLL: Final = "send_poll"
+SERVICE_SEND_TO_CONVERSATION: Final = "send_to_conversation"
+EVENT_WAHA_WHATSAPP: Final = "waha_whatsapp_event"
 
 DEFAULT_NO_ACTION_TITLE: Final = "No action"
 DEFAULT_SETTLE_SECONDS: Final = 5.0

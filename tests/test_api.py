@@ -127,6 +127,18 @@ async def test_send_text_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_text_with_quoted_reply() -> None:
+    """Quoted replies pass the private WAHA message ID to sendText."""
+    session = FakeSession(FakeResponse(200, {"id": "REPLY-ID"}))
+
+    await make_client(session).async_send_text(
+        "393331234567", "Pong", reply_to_message_id="false_chat_OLD-ID"
+    )
+
+    assert session.requests[0]["json"]["reply_to"] == "false_chat_OLD-ID"
+
+
+@pytest.mark.asyncio
 async def test_gows_nested_message_id_is_supported() -> None:
     """GOWS engine variants may nest the WhatsApp message ID."""
     session = FakeSession(
@@ -221,7 +233,12 @@ async def test_ensure_webhook_preserves_unrelated_session_config() -> None:
                 existing,
                 {
                     "url": "http://homeassistant:8123/api/webhook/private",
-                    "events": ["poll.vote", "poll.vote.failed"],
+                    "events": [
+                        "poll.vote",
+                        "poll.vote.failed",
+                        "message",
+                        "message.reaction",
+                    ],
                     "hmac": {"key": "hmac-secret"},
                     "retries": {
                         "policy": "constant",
@@ -239,7 +256,7 @@ async def test_ensure_webhook_is_idempotent() -> None:
     """An already-correct private webhook does not update the WAHA session."""
     desired = {
         "url": "http://homeassistant:8123/api/webhook/private",
-        "events": ["poll.vote", "poll.vote.failed"],
+        "events": ["poll.vote", "poll.vote.failed", "message", "message.reaction"],
         "hmac": {"key": "hmac-secret"},
         "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
         "customHeaders": None,

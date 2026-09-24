@@ -1,5 +1,6 @@
 """Individual notify entities for WAHA WhatsApp."""
 
+import logging
 from typing import override
 
 from homeassistant.components.notify import NotifyEntity, NotifyEntityFeature
@@ -13,6 +14,8 @@ from . import WahaConfigEntry
 from .api import WahaError
 from .const import CONF_RECIPIENT, DOMAIN
 from .helpers import contact_state_attributes, render_notification
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -68,15 +71,24 @@ async def _async_send_to_recipient(
     title: str | None,
 ) -> None:
     """Render and send one configured recipient notification."""
-    await config_entry.runtime_data.client.async_send_text(
+    result = await config_entry.runtime_data.client.async_send_text(
         subentry.data[CONF_RECIPIENT],
         render_notification(message, title),
     )
+    if result.id is not None:
+        try:
+            registry = config_entry.runtime_data.channel_registry
+            contact = await registry.async_resolve_chat(result.chat_id)
+            if contact is not None:
+                await registry.async_remember_message(
+                    result.id, contact.conversation_id
+                )
+        except Exception:
+            # The notification was sent; quote/reaction tracking is secondary.
+            _LOGGER.exception("WAHA notification sent but channel tracking failed")
 
 
-def _device_info(
-    config_entry: WahaConfigEntry, subentry: ConfigSubentry
-) -> DeviceInfo:
+def _device_info(config_entry: WahaConfigEntry, subentry: ConfigSubentry) -> DeviceInfo:
     """Describe the local WAHA service for one recipient subentry.
 
     Home Assistant 2026.8 associates a device with a single config

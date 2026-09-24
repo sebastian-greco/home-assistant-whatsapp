@@ -66,3 +66,21 @@ send_poll:
       example: Keep scheduled
       selector:
         text:
+
+send_to_conversation:
+  fields:
+    conversation_id:
+      required: true
+      example: direct_opaque_456
+      selector:
+        text:
+    message:
+      required: true
+      example: The house is in Home mode.
+      selector:
+        text:
+          multiline: true
+    reply_to_message_id:
+      example: msg_opaque_abc
+      selector:
+        text:

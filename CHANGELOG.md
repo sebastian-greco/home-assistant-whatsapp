@@ -5,6 +5,18 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-24
+
+### Added
+
+- Receive authenticated direct-chat messages and reactions from configured
+  contacts as structured `waha_whatsapp_event` events with opaque conversation
+  and message IDs.
+- Send text back to a configured conversation with
+  `waha_whatsapp.send_to_conversation`, optionally quoting a tracked message.
+- Preserve the existing individual notify entities and poll action event
+  contract while extending the private webhook for bidirectional messaging.
+
 ## [1.3.3] - 2026-08-23
 
 ### Fixed
@@ -196,3 +208,4 @@ All notable changes are documented here. This project follows
 [1.3.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.1
 [1.3.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.2
 [1.3.3]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.3
+[1.4.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.0
