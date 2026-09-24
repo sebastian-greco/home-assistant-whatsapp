@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import Context
 
-from .const import CONF_SESSION, EVENT_WAHA_WHATSAPP
+from .const import CHANNEL_SCHEMA_VERSION, CONF_SESSION, EVENT_WAHA_WHATSAPP
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = CHANNEL_SCHEMA_VERSION
 MAX_TEXT_LENGTH = 8192
 MAX_EMOJI_LENGTH = 32
 MAX_MIME_LENGTH = 128
@@ -178,12 +178,6 @@ class WahaInboundManager:
             self._reject("duplicate")
             return
 
-        sender: dict[str, str] = {"contact_id": contact.subentry_id}
-        if contact.notify_entity_id:
-            sender["notify_entity_id"] = contact.notify_entity_id
-        if contact.person_entity_id:
-            sender["person_entity_id"] = contact.person_entity_id
-
         event_data: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "event_id": self._registry.event_token(raw_event_id),
@@ -200,7 +194,7 @@ class WahaInboundManager:
             "conversation_id": contact.conversation_id,
             "conversation_type": "direct",
             "occurred_at": occurred_at,
-            "sender": sender,
+            "sender": contact.event_sender(),
             **detail,
         }
         context = await self._async_person_context(contact.person_entity_id)

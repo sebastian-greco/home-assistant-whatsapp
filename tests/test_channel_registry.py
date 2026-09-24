@@ -97,6 +97,12 @@ async def test_configured_direct_chat_and_lid_routing(monkeypatch) -> None:
     assert contact.recipient == "393331234567"
     assert contact.notify_entity_id == "notify.waha_sub-a"
     assert contact.person_entity_id == "person.seba"
+    assert contact.event_sender() == {
+        "contact_id": "sub-a",
+        "notify_entity_id": "notify.waha_sub-a",
+        "person_entity_id": "person.seba",
+    }
+    assert "393331234567" not in str(contact.event_sender())
     assert contact.conversation_id.startswith("direct_")
     assert "393331234567" not in contact.conversation_id
     assert registry.resolve_conversation(contact.conversation_id) == contact
@@ -110,6 +116,12 @@ async def test_configured_direct_chat_and_lid_routing(monkeypatch) -> None:
     assert await registry.async_resolve_chat("name@s.whatsapp.net") is None
     assert await registry.async_resolve_chat("393331234567@g.us") is None
     assert await registry.async_resolve_chat("555555555@lid") is None
+
+    guest = await registry.async_resolve_chat("441234567890@c.us")
+    assert guest.event_sender() == {
+        "contact_id": "sub-b",
+        "notify_entity_id": "notify.waha_sub-b",
+    }
 
 
 @pytest.mark.asyncio

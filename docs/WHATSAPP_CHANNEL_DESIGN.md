@@ -104,8 +104,12 @@ message can still be reported with an opaque target and `target_known: false`
 when WAHA supplies enough information to verify that it belongs to the same
 configured direct conversation. Consumers should require a known target before
 assigning action semantics. An empty reaction from WAHA represents removal,
-not a negative vote. The existing poll-vote action event stays separate and
-unchanged.
+not a negative vote. Since v1.4.1, a poll choice that survives its correction
+window publishes `type: poll.selection_settled` with an opaque poll message ID,
+the selected option, and nullable action ID. The existing
+`mobile_app_notification_action` event stays separate and unchanged; consumers
+must not execute an action from both event types. The synthetic "No action"
+choice is observable in the channel event without firing a legacy action.
 
 Reactions are most plausible as lightweight acknowledgements of a *specific*
 notification (for example, "I saw this"). They are a poor substitute for

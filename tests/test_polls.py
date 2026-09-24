@@ -370,6 +370,7 @@ def test_pending_poll_storage_round_trip() -> None:
         options,
         5,
         person_entity_id="person.seba",
+        conversation_id="direct_opaque",
     )
     vote = polls.parse_poll_vote(
         vote_payload(selected_options=["Cancel"], timestamp=123), "house"
@@ -382,6 +383,7 @@ def test_pending_poll_storage_round_trip() -> None:
     pending = restored.pending("poll-1")
     assert pending is not None
     assert pending.person_entity_id == "person.seba"
+    assert pending.conversation_id == "direct_opaque"
     assert "user_id" not in pending.as_dict()
     assert restored.commit("poll-1", 123, now=1005) == (True, "CANCEL")
 
@@ -409,3 +411,4 @@ def test_legacy_pending_poll_id_is_canonicalized_during_restore() -> None:
     assert pending is not None
     assert pending.message_id == "A1B2C3D4"
     assert pending.person_entity_id is None
+    assert pending.conversation_id is None

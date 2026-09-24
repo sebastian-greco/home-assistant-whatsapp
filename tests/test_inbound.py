@@ -49,6 +49,14 @@ class _Contact:
     notify_entity_id: str = "notify.waha_seba"
     person_entity_id: str | None = "person.seba"
 
+    def event_sender(self) -> dict[str, str]:
+        sender = {"contact_id": self.subentry_id}
+        if self.notify_entity_id:
+            sender["notify_entity_id"] = self.notify_entity_id
+        if self.person_entity_id:
+            sender["person_entity_id"] = self.person_entity_id
+        return sender
+
 
 class _Registry:
     def __init__(self, contact: _Contact | None = None) -> None:

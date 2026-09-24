@@ -234,18 +234,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
     except WahaError as err:
         raise ConfigEntryNotReady(f"Unable to connect to WAHA: {err}") from err
 
+    channel_registry = ChannelRegistry(hass, entry, client)
     poll_manager = WahaPollManager(
         hass,
         entry,
         client,
         entry.data[CONF_WEBHOOK_SECRET],
+        channel_registry,
     )
     try:
         await poll_manager.async_start()
     except Exception:
         poll_manager.stop()
         raise
-    channel_registry = ChannelRegistry(hass, entry, client)
     try:
         await channel_registry.async_start()
     except Exception:

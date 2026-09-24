@@ -45,6 +45,15 @@ class ChannelContact:
     notify_entity_id: str | None
     person_entity_id: str | None
 
+    def event_sender(self) -> dict[str, str]:
+        """Expose the same non-sensitive contact identity on channel events."""
+        sender = {"contact_id": self.subentry_id}
+        if self.notify_entity_id:
+            sender["notify_entity_id"] = self.notify_entity_id
+        if self.person_entity_id:
+            sender["person_entity_id"] = self.person_entity_id
+        return sender
+
 
 @dataclass(slots=True)
 class _TrackedMessage:

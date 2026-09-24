@@ -33,6 +33,7 @@ SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_POLL: Final = "send_poll"
 SERVICE_SEND_TO_CONVERSATION: Final = "send_to_conversation"
 EVENT_WAHA_WHATSAPP: Final = "waha_whatsapp_event"
+CHANNEL_SCHEMA_VERSION: Final = 1
 
 DEFAULT_NO_ACTION_TITLE: Final = "No action"
 DEFAULT_SETTLE_SECONDS: Final = 5.0

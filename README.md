@@ -215,7 +215,7 @@ choice. Its default label is `No action`. With two or more real actions, each
 action becomes one option and no synthetic choice is added.
 
 After the latest choice remains unchanged for `settle_seconds` (five seconds
-by default), the integration fires the standard Home Assistant event:
+by default), a real action choice fires the standard Home Assistant event:
 
 ```yaml
 event_type: mobile_app_notification_action
@@ -223,8 +223,33 @@ data:
   action: CANCEL_SLEEP_MODE
 ```
 
-That is the same event contract used by Home Assistant Companion App
-actionable notifications. An existing handler like this works for either the
+Since v1.4.1, every settled choice on a newly sent poll also publishes a
+`waha_whatsapp_event` with `type: poll.selection_settled`. This includes the
+synthetic **No action** choice, for which `poll.action_id` is null. It is an
+additional channel event, not a second execution of the action:
+
+```yaml
+event_type: waha_whatsapp_event
+data:
+  schema_version: 1
+  type: poll.selection_settled
+  conversation_id: direct_opaque_456
+  poll:
+    message_id: msg_opaque_abc
+    selected_option: Cancel
+    action_id: CANCEL_SLEEP_MODE
+```
+
+The channel event also has `event_id`, `config_entry_id`, `occurred_at`,
+`conversation_type: direct`, and the same safe `sender` metadata used for
+messages and reactions. Neither event is emitted for a deselection left with
+no choice. Polls sent before updating to 1.4.1 have no saved conversation
+association, so they continue to produce only the legacy action event.
+Automations should not execute the same action from *both* event types.
+
+The `mobile_app_notification_action` event is the same contract used by Home
+Assistant Companion App actionable notifications. An existing handler like
+this works for either the
 mobile notification button or the WhatsApp poll without another trigger:
 
 ```yaml
@@ -245,10 +270,11 @@ When the configured WhatsApp contact has a Person association and that Person
 is linked to an active Home Assistant user, the settled event has that user's
 ID in `trigger.event.context.user_id`. This mirrors Companion App attribution
 and allows one shared action handler to identify who responded. The integration
-stores only `person_entity_id` with the pending poll; it resolves the Person's
-current user when the vote settles and never includes the user ID in event
-data. Contacts without a linked active user still fire the same action with a
-null `context.user_id`. WhatsApp responses use Home Assistant's local event origin.
+stores the optional `person_entity_id` and an opaque conversation handle with
+the pending poll; it resolves the Person's current user when the vote settles
+and never includes the user ID in event data. Contacts without a linked active
+user still fire the same action with a null `context.user_id`. WhatsApp
+responses use Home Assistant's local event origin.
 
 The five-second correction window handles a quick misclick: a newer vote
 replaces the earlier choice and restarts the timer. A poll is consumed after
@@ -316,14 +342,14 @@ router still decides whether to send to the Companion App, WhatsApp, or both.
 
 ## Receive a WhatsApp message
 
-The integration publishes `waha_whatsapp_event` for direct messages and
-reactions from configured contacts. A new message does not need to reply to a
-notification. Unknown senders and group chats are not published in this
-version. Receiving a message never executes a Home Assistant action by
-itself. Events more than one hour old, or more than five minutes in the
-future, are discarded to prevent stale history from acting like a new
-request after a reconnect. If WAHA runs on another machine, keep its clock
-synchronized with Home Assistant's.
+The integration publishes `waha_whatsapp_event` for direct messages,
+reactions, and settled poll selections from configured contacts. A new
+message does not need to reply to a notification. Unknown senders and group
+chats are not published in this version. Receiving a message never executes a
+Home Assistant action by itself. Message and reaction events more than one
+hour old, or more than five minutes in the future, are discarded to prevent
+stale history from acting like a new request after a reconnect. If WAHA runs
+on another machine, keep its clock synchronized with Home Assistant's.
 
 An inbound text event has this shape (IDs are opaque, not phone numbers):
 

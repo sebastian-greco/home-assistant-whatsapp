@@ -5,6 +5,18 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-24
+
+### Added
+
+- Publish a `waha_whatsapp_event` with `type: poll.selection_settled` after a
+  valid configured-contact poll choice survives its correction window. Include
+  opaque poll and conversation IDs, the selected option, and optional action
+  ID; the synthetic "No action" choice is visible with a null action ID.
+- Keep the existing `mobile_app_notification_action` event unchanged for real
+  action choices. Polls sent before 1.4.1 retain that legacy event but do not
+  gain an inferred channel identity after an update.
+
 ## [1.4.0] - 2026-09-24
 
 ### Added
@@ -209,3 +221,4 @@ All notable changes are documented here. This project follows
 [1.3.2]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.2
 [1.3.3]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.3
 [1.4.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.0
+[1.4.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.1
