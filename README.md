@@ -32,6 +32,10 @@ Group chats, voice transcription, access provisioning, and command execution
 are future phases. Inbound messages never run Home Assistant actions by
 themselves; an automation or conversation agent must explicitly consume them.
 
+The next planned feature is a managed guest group with membership events and
+private guest conversations. See the [implementation plans](docs/plans/README.md)
+for scope and proposed contracts; these are not released features.
+
 ## Requirements
 
 - Home Assistant 2026.7 or newer.

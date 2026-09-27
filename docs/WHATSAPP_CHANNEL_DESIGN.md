@@ -3,6 +3,11 @@
 Status: v1.4 channel architecture. The direct-chat implementation is in
 v1.4.0; the later capabilities below remain design proposals.
 
+The next feature priority is now the
+[managed guest group plan](plans/MANAGED_GUEST_GROUP.md), before voice
+transcription. That plan refines the group/identity proposals below; none of
+its new group capabilities are implemented yet.
+
 ## Why this exists
 
 Today the integration sends individual notifications and actionable polls. The
