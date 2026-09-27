@@ -358,8 +358,9 @@ router still decides whether to send to the Companion App, WhatsApp, or both.
 
 The integration publishes `waha_whatsapp_event` for direct messages,
 reactions, and settled poll selections from configured contacts. A new
-message does not need to reply to a notification. Unknown senders and group
-chats are not published in this version. Receiving a message never executes a
+message does not need to reply to a notification. Unknown senders are not
+published. Group chats are published only for the opt-in managed guest group;
+other groups are ignored. Receiving a message never executes a
 Home Assistant action by itself. Message and reaction events more than one
 hour old, or more than five minutes in the future, are discarded to prevent
 stale history from acting like a new request after a reconnect. If WAHA runs

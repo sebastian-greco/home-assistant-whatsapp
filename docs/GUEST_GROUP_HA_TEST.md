@@ -8,8 +8,8 @@ administrator deliberately chooses to create a test group and has read the
 previewed recipients. Never use a household production group for first
 verification.
 
-Status: no live HA/WhatsApp trial has yet been performed for this source-tree
-implementation. Completing this checklist is a release/rollout gate, not a
+Status: included in integration version 1.5.0, but no live HA/WhatsApp trial
+has yet been performed. Completing this checklist is a rollout gate, not a
 claim that testing already succeeded. Unit tests do not replace this trial.
 
 ## Before the first write
@@ -24,9 +24,9 @@ claim that testing already succeeded. Unit tests do not replace this trial.
    2026.9.1; external WAHA installations must be checked independently.
    The integration rejects lower versions because required membership
    security controls are unavailable there.
-3. Confirm the installed HACS integration release actually contains managed
-   guest groups. This source-tree documentation does not assign a release
-   version.
+3. Confirm the installed HACS integration is version 1.5.0 or newer and
+   contains managed guest groups. The HAOS app has its own version; its
+   `waha-v...` tag is not the HACS integration version.
 4. Prepare at least one test Home Assistant administrator mapped to one
    `person.*` entity and one WhatsApp recipient in this WAHA entry. Review all
    other admins and explicitly exclude unmapped/ambiguous ones or fix their
