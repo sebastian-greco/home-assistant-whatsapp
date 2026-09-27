@@ -51,6 +51,8 @@ Configuration provides **Enable guest group**, a group name (suggested default
 `Casita — Guests`), and a preview of mapped human administrators. Derive that
 preview from configured recipient -> optional Person -> active HA administrator
 user. An HA administrator without a unique WhatsApp mapping cannot be added;
+evaluate eligibility per config entry, excluding inactive and system-generated
+HA users. Do not borrow a recipient mapping from another integration entry.
 show missing/ambiguous mappings and require correction or an explicit exclusion
 before provisioning. Require at least one eligible human administrator.
 
@@ -311,7 +313,8 @@ expose redacted readiness/sync times, counts, and failure reasons only.
    publish the release. This plan does not authorize an automatic release.
 
 Required test cases: duplicate-enable/restart; partial setup and unknown create
-result; missing/duplicate admin mappings; add blocked by WhatsApp privacy; loss
+result; missing/duplicate admin mappings; inactive/system-generated admin users
+and cross-entry mapping isolation; add blocked by WhatsApp privacy; loss
 of bot privileges/settings drift; batched participant changes; PN/LID aliases
 and conflicts; same name/different people; renamed/rejoining guest; stale leave
 from an earlier stay; delayed messages/reactions crossing a leave/rejoin;
