@@ -360,6 +360,9 @@ payloads against the newly selected engine version, not only current docs.
   group notifications; private conversations; disable/recovery/availability;
   identities, optional names, and limits. Clearly distinguish current features
   from future command/access workflows.
+  Warn that opaque HA identifiers do not make the WhatsApp group anonymous:
+  membership and WhatsApp-side profile/phone visibility remain subject to the
+  platform's group/privacy behavior. Do not promise hidden identities there.
 - `docs/GUEST_GROUP_API.md`: exact event fields/types, sender vs participant,
   host/guest vs WhatsApp roles, nullable/omitted fields, ID/route lifecycles,
   membership-query and send action schemas, snapshot freshness/unknown states,
