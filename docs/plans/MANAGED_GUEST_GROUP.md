@@ -313,8 +313,8 @@ expose redacted readiness/sync times, counts, and failure reasons only.
 
 ## Implementation phases and quality gates
 
-1. **Installed-WAHA capability spike and contract freeze.** Verify the pinned
-   GOWS version supports creation, role promotion, security settings, roster
+1. **WAHA capability spike and contract freeze.** Verify the selected candidate
+   GOWS image supports creation, role promotion, security settings, roster
    retrieval, PN/LID mapping, and participant events. Record sanitized fixtures.
    Verify the session account identity used for the private bot binding.
    Implement/test the required digest-pinned HAOS app update as its own
