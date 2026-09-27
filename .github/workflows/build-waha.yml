@@ -5,12 +5,14 @@ on:
   pull_request:
     paths:
       - "waha/**"
+      - "scripts/smoke_waha_app.mjs"
       - ".github/workflows/build-waha.yml"
   push:
     branches:
       - main
     paths:
       - "waha/**"
+      - "scripts/smoke_waha_app.mjs"
       - ".github/workflows/build-waha.yml"
 
 permissions:
@@ -33,6 +35,29 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Build local verification image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./waha
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ha-waha-smoke:${{ steps.version.outputs.version }}
+          build-args: |
+            BUILD_ARCH=amd64
+            BUILD_VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Smoke-test isolated unlinked session
+        run: node scripts/smoke_waha_app.mjs "ha-waha-smoke:${{ steps.version.outputs.version }}"
+
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push'
         uses: docker/login-action@v3
@@ -41,12 +66,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build WAHA app image
+      - name: Publish verified WAHA app image
+        if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: ./waha
           platforms: linux/amd64
-          push: ${{ github.event_name == 'push' }}
+          push: true
           tags: |
             ghcr.io/sebastian-greco/ha-waha:${{ steps.version.outputs.version }}
             ghcr.io/sebastian-greco/ha-waha:latest

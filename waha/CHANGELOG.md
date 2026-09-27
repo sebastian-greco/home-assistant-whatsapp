@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.3
+
+- Upgrade the bundled browserless WAHA GOWS engine to 2026.9.1. Upstream
+  releases add group member-add and membership-approval APIs and improve
+  phone-number/LID handling; these are engine capabilities, not a new
+  Home Assistant guest/group integration. See the official
+  [2026.7.2](https://github.com/devlikeapro/waha/releases/tag/2026.7.2),
+  [2026.8.1](https://github.com/devlikeapro/waha/releases/tag/2026.8.1),
+  [2026.8.2](https://github.com/devlikeapro/waha/releases/tag/2026.8.2), and
+  [2026.9.1](https://github.com/devlikeapro/waha/releases/tag/2026.9.1)
+  release notes.
+- The companion HACS integration remains at 1.4.1. See `DOCS.md` for backup,
+  upgrade verification, and rollback cautions.
+- Apply the media-download option explicitly to WAHA's new event and API
+  defaults, preserving disabled downloads by default.
+- Add startup/shutdown and credential-redaction regressions plus a real-image,
+  isolated-session smoke check that gates app image publication.
+
 ## 0.2.2
 
 - Prevent Home Assistant ingress root requests containing a double slash from

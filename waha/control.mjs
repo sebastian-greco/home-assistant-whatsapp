@@ -59,6 +59,11 @@ export function createControlServer({
 } = {}) {
   const html = readFileSync(htmlPath);
 
+  function safeError(error) {
+    const message = String(error?.message || error);
+    return apiKey ? message.replaceAll(apiKey, "[redacted]") : message;
+  }
+
   async function waha(path, init = {}) {
     const headers = new Headers(init.headers || {});
     headers.set("X-Api-Key", apiKey);
@@ -77,7 +82,7 @@ export function createControlServer({
         await waha("/api/version");
         return json(res, 200, { status: "ok" });
       } catch (error) {
-        return json(res, 503, { status: "unavailable", error: error.message });
+        return json(res, 503, { status: "unavailable", error: safeError(error) });
       }
     }
 
@@ -111,7 +116,7 @@ export function createControlServer({
           configuredSession: sessionName,
         });
       } catch (error) {
-        return json(res, 502, { error: error.message });
+        return json(res, 502, { error: safeError(error) });
       }
     }
 
@@ -123,7 +128,7 @@ export function createControlServer({
         });
         return json(res, 201, session);
       } catch (error) {
-        return json(res, 502, { error: error.message });
+        return json(res, 502, { error: safeError(error) });
       }
     }
 
@@ -143,7 +148,7 @@ export function createControlServer({
         );
         return json(res, 200, result || { status: "ok" });
       } catch (error) {
-        return json(res, 502, { error: error.message });
+        return json(res, 502, { error: safeError(error) });
       }
     }
 
@@ -157,7 +162,7 @@ export function createControlServer({
         const qr = await waha(`/api/${encodeURIComponent(name)}/auth/qr`);
         return json(res, 200, qr);
       } catch (error) {
-        return json(res, 502, { error: error.message });
+        return json(res, 502, { error: safeError(error) });
       }
     }
 

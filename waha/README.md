@@ -4,7 +4,7 @@ Self-hosted WAHA packaged as a Home Assistant app, with a small ingress-native c
 
 This first experimental release provides:
 
-- pinned WAHA 2026.7.1 using the lightweight GOWS engine;
+- pinned WAHA 2026.9.1 using the browserless GOWS engine;
 - persistent WhatsApp session data under the app's `/data` volume;
 - automatic creation and restoration of one household session;
 - QR linking plus start, stop, and restart controls in the sidebar;
