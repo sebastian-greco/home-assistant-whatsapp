@@ -11,6 +11,9 @@ treated as available until the implementation and release documentation say so.
   group, persistent participant/membership identities, membership events,
   group notifications, and private communication with current members.
   Status: planned; implementation not started; release version not assigned.
+- [WAHA group capabilities](WAHA_GROUP_CAPABILITIES.md): version-specific
+  prerequisite research. The current 2026.7.1 engine lacks required membership
+  security APIs; a tested HAOS app update is part of the feature plan.
 
 Guest groups take priority over the previously proposed voice-transcription
 phase. Voice transcription, command execution, access provisioning, and sidebar

@@ -47,12 +47,31 @@ individual-contact polls remain supported.
 
 ## Configuration and provisioning
 
+### WAHA prerequisite
+
+The current HAOS app pins GOWS 2026.7.1. Required APIs were introduced later:
+admin-only member addition in [2026.7.2](https://github.com/devlikeapro/waha/releases/tag/2026.7.2),
+and membership approval in [2026.8.2](https://github.com/devlikeapro/waha/releases/tag/2026.8.2).
+The intended fully provisioned policy therefore requires at least the documented
+2026.8.2 API set, not just a HACS integration update. The capability research
+note is [WAHA group capabilities](WAHA_GROUP_CAPABILITIES.md).
+
+Select and test a compatible GOWS image, pin its exact digest, and include a
+separate HAOS app version/changelog update. Preserve session data; verify
+backup/restore and rollback constraints before release. Re-run app startup,
+discovery, dashboard, media-disable, existing direct-message and poll tests
+against the chosen version. External WAHA installations receive a clear
+capability error instead of silently weakening membership safeguards. No new
+image or live upgrade is selected/performed by this planning change.
+
+### Setup
+
 Configuration provides **Enable guest group**, a group name (suggested default
 `Casita — Guests`), and a preview of mapped human administrators. Derive that
 preview from configured recipient -> optional Person -> active HA administrator
-user. An HA administrator without a unique WhatsApp mapping cannot be added;
-evaluate eligibility per config entry, excluding inactive and system-generated
+user. Evaluate eligibility per config entry, excluding inactive and system-generated
 HA users. Do not borrow a recipient mapping from another integration entry.
+An HA administrator without a unique WhatsApp mapping cannot be added;
 show missing/ambiguous mappings and require correction or an explicit exclusion
 before provisioning. Require at least one eligible human administrator.
 
@@ -198,9 +217,11 @@ before delayed or sensitive work. Reactions use the same identity/time rules.
 
 Each membership must have one clear authoritative representation on a message,
 not inconsistent copies under sender/group. Finalize exact nesting in phase 1.
-No raw WhatsApp JID/phone, media URL, webhook secret, complete WAHA payload, or
-PIN is added to public events or diagnostics. Message text/display names can
-appear in automation traces and must not be treated as trusted instructions.
+Do not add fields for raw WhatsApp JIDs/phones, media URLs, webhook secrets,
+complete WAHA payloads, or generated PINs to public events or diagnostics.
+Incoming message text can itself contain sensitive information, including a
+PIN supplied by its sender. Message text/display names can appear in automation
+traces; consumers must handle that privacy risk and untrusted content explicitly.
 
 ## How a PIN automation identifies the correct guest
 
@@ -296,6 +317,8 @@ expose redacted readiness/sync times, counts, and failure reasons only.
    GOWS version supports creation, role promotion, security settings, roster
    retrieval, PN/LID mapping, and participant events. Record sanitized fixtures.
    Verify the session account identity used for the private bot binding.
+   Implement/test the required digest-pinned HAOS app update as its own
+   prerequisite; do not enable the feature on incompatible external versions.
    Resolve exact public schema, query action, retention, and bootstrap UX.
 2. **Private identity/membership registry.** Versioned Store, participant aliases,
    membership IDs/closures, invalidated routes, snapshots, ordering, restart
@@ -328,8 +351,8 @@ metadata; all current notify/poll/channel regressions.
 Live verification uses a test participant and harmless messages, not a real
 door PIN. Confirm admin-only additions and approval, join/leave identities,
 group notification, guest DM/reply, removal rejection, rejoin with a new
-membership ID, and restart stability. Record unsupported pinned-version
-features before proposing any HAOS app update.
+membership ID, and restart stability. Verify the required settings and actual
+payloads against the newly selected engine version, not only current docs.
 
 ## Release documentation deliverables
 
