@@ -35,8 +35,8 @@ function redact(value) {
   return String(value).replaceAll(apiKey, "[redacted]");
 }
 
-function containerLogs() {
-  const result = spawnSync("docker", ["logs", "--tail", "200", container], {
+function containerLogs(tailOnly = false) {
+  const result = spawnSync("docker", ["logs", ...(tailOnly ? ["--tail", "200"] : []), container], {
     encoding: "utf8",
     timeout: 20_000,
   });
@@ -145,7 +145,7 @@ try {
   console.error(redact(error.message));
   if (createdContainer) {
     try {
-      console.error(redact(containerLogs()));
+      console.error(redact(containerLogs(true)));
     } catch {
       // Keep the original failure if the container is already unavailable.
     }
