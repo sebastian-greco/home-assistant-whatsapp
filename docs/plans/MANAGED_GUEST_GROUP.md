@@ -174,8 +174,14 @@ Group messages retain `message.received` with `conversation_type: group` and
 Guest private messages use `conversation_type: direct`, the membership-scoped
 destination, and the same `sender.participant_id`/membership IDs. Include an
 optional safe display label and existing contact metadata where available.
-Roles/status describe the observation; consumers query current state before
-delayed or sensitive work. Reactions use the same sender/group identity model.
+Bind guest membership metadata to the message/reaction occurrence time, not
+merely the membership active when delivery arrives. A delayed event from stay A
+must never acquire stay B's IDs or private route. Require a trustworthy timestamp
+within a confirmed membership interval; reject guest-derived events when that
+association is ambiguous. For a snapshot-discovered membership whose actual
+start is unknown, do not attribute messages preceding its confirmation time.
+Roles/status describe the observation; consumers still query current state
+before delayed or sensitive work. Reactions use the same identity/time rules.
 
 Each membership must have one clear authoritative representation on a message,
 not inconsistent copies under sender/group. Finalize exact nesting in phase 1.
@@ -296,7 +302,8 @@ Required test cases: duplicate-enable/restart; partial setup and unknown create
 result; missing/duplicate admin mappings; add blocked by WhatsApp privacy; loss
 of bot privileges/settings drift; batched participant changes; PN/LID aliases
 and conflicts; same name/different people; renamed/rejoining guest; stale leave
-from an earlier stay; delayed/out-of-order events; approval requests; bot/host
+from an earlier stay; delayed messages/reactions crossing a leave/rejoin;
+missing/untrustworthy timestamps; delayed/out-of-order events; approval requests; bot/host
 filtering; unrelated-group/unknown-sender/bad-HMAC rejection; private send racing
 removal; restart/offline removal and snapshot reconciliation; storage failure;
 existing permanent contact surviving removal; quote ownership; clean event
