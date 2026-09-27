@@ -112,9 +112,11 @@ try {
   assert.ok(!overviewBody.includes(apiKey), "Sidebar must not expose the API key");
   assert.equal(JSON.parse(overviewBody).version.version, expectedVersion);
   const dashboard = await request(api, "/dashboard/", {
+    authenticated: false,
     headers: { Authorization: `Basic ${Buffer.from(`admin:${apiKey}`).toString("base64")}` },
   });
   assert.equal(dashboard.status, 200);
+  assert.equal((await request(api, "/dashboard/", { authenticated: false })).status, 401);
 
   await waitFor(async () => {
     const sessions = await (await request(api, "/api/sessions?all=true")).json();
