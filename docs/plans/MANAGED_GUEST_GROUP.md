@@ -110,6 +110,9 @@ Do not create HA Person entities or users for guests. Keep configured contacts'
 optional Person association unchanged. If a member is also an existing contact,
 attach its existing contact/Person metadata only after unambiguous identity
 resolution, and preserve its independent direct-contact eligibility on removal.
+For an existing configured contact's private message, publish one event using
+its unchanged configured-contact destination; add membership metadata only if
+temporally verified. No duplicate guest event. Group messages use group routing.
 Host classification is not a house-action permission.
 
 Persist opaque IDs and private routing/alias mappings in a versioned private
