@@ -73,6 +73,14 @@ stops guest-derived routing and events, but does not delete the WhatsApp group
 or remove people. Re-enabling reuses its identity after verification. Replacing
 a group requires explicit confirmation and invalidates the old guest routes.
 
+Bind the saved group, participant aliases, and guest routes privately to the
+verified bot WhatsApp account identity, not just the WAHA session name. Confirm
+that binding at startup/reconnect and before enabling group-derived routing.
+Normalize account aliases only with verified mappings. A changed/unconfirmed
+bot account suspends this feature; re-pairing the same session name to another
+account must never silently reuse old identity/routing state. Recovery requires
+reviewed adoption or replacement, without deleting the old WhatsApp group.
+
 HA administrator discovery is a bootstrap/configuration operation, not an
 unannounced continuous role synchronizer. Later HA admin changes require an
 explicit reviewed update. Observe WhatsApp role/settings drift and report it;
@@ -282,6 +290,7 @@ expose redacted readiness/sync times, counts, and failure reasons only.
 1. **Installed-WAHA capability spike and contract freeze.** Verify the pinned
    GOWS version supports creation, role promotion, security settings, roster
    retrieval, PN/LID mapping, and participant events. Record sanitized fixtures.
+   Verify the session account identity used for the private bot binding.
    Resolve exact public schema, query action, retention, and bootstrap UX.
 2. **Private identity/membership registry.** Versioned Store, participant aliases,
    membership IDs/closures, invalidated routes, snapshots, ordering, restart
@@ -306,6 +315,7 @@ from an earlier stay; delayed messages/reactions crossing a leave/rejoin;
 missing/untrustworthy timestamps; delayed/out-of-order events; approval requests; bot/host
 filtering; unrelated-group/unknown-sender/bad-HMAC rejection; private send racing
 removal; restart/offline removal and snapshot reconciliation; storage failure;
+same-session re-pairing to another bot account and unconfirmed account identity;
 existing permanent contact surviving removal; quote ownership; clean event
 metadata; all current notify/poll/channel regressions.
 
