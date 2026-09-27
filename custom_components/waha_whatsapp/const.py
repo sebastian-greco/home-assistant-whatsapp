@@ -6,6 +6,15 @@ DOMAIN: Final = "waha_whatsapp"
 
 DEFAULT_API_URL: Final = "http://localhost:3000"
 DEFAULT_SESSION: Final = "default"
+DEFAULT_GUEST_GROUP_NAME: Final = "Guests"
+
+CONF_GUEST_GROUP_ENABLED: Final = "guest_group_enabled"
+CONF_GUEST_GROUP_EVER_ENABLED: Final = "guest_group_ever_enabled"
+CONF_GUEST_GROUP_NAME: Final = "guest_group_name"
+CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS: Final = "guest_group_excluded_admin_user_ids"
+CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT: Final = (
+    "guest_group_reviewed_admin_fingerprint"
+)
 
 CONF_API_URL: Final = "api_url"
 CONF_SESSION: Final = "session"
@@ -32,6 +41,7 @@ ATTR_REPLY_TO_MESSAGE_ID: Final = "reply_to_message_id"
 SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_POLL: Final = "send_poll"
 SERVICE_SEND_TO_CONVERSATION: Final = "send_to_conversation"
+SERVICE_GET_GROUP_MEMBERSHIP: Final = "get_group_membership"
 EVENT_WAHA_WHATSAPP: Final = "waha_whatsapp_event"
 CHANNEL_SCHEMA_VERSION: Final = 1
 

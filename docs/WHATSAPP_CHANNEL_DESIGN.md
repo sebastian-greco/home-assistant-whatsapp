@@ -1,12 +1,14 @@
 # WhatsApp as a Home Assistant communication channel
 
-Status: v1.4 channel architecture. The direct-chat implementation is in
-v1.4.0; the later capabilities below remain design proposals.
-
-The next feature priority is now the
-[managed guest group plan](plans/MANAGED_GUEST_GROUP.md), before voice
-transcription. That plan refines the group/identity proposals below; none of
-its new group capabilities are implemented yet.
+Status: v1.4 direct-channel architecture. The managed guest-group
+implementation is present in the current source tree, but has not yet been
+assigned a release version or verified in a live HA/WhatsApp trial. Its
+normative current contracts are in the [user guide](GUEST_GROUPS.md),
+[API reference](GUEST_GROUP_API.md), [automation guide](GUEST_GROUP_AUTOMATIONS.md),
+and [live test checklist](GUEST_GROUP_HA_TEST.md). The group sections below
+are earlier design material and may differ from the implemented contract.
+Voice transcription, access provisioning, and command execution remain
+separate future work.
 
 ## Why this exists
 

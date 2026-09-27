@@ -5,6 +5,19 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-28
+
+### Added
+
+- Add an opt-in managed WhatsApp guest group with reviewed Home Assistant
+  administrator mapping, verified group settings, opaque per-stay membership
+  events, a group notify entity, and private current-member routes.
+- Add a read-only `get_group_membership` action and explicit recovery for an
+  uncertain group-create result. Missing private guest state fails closed and
+  never triggers automatic group recreation.
+- Document the group event/action contract and a manual Home Assistant live
+  test checklist. Live Home Assistant/WhatsApp behavior remains unverified.
+
 ## [1.4.1] - 2026-09-24
 
 ### Added
@@ -222,3 +235,4 @@ All notable changes are documented here. This project follows
 [1.3.3]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.3.3
 [1.4.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.0
 [1.4.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.1
+[1.5.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.5.0

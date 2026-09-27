@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -114,6 +114,18 @@ class ChannelRegistry:
         self._lock = asyncio.Lock()
         self._messages: dict[str, _TrackedMessage] = {}
         self._events: dict[str, float] = {}
+        self._extra_route_resolver: Callable[[str], str | None] | None = None
+
+    def set_extra_route_resolver(
+        self, resolver: Callable[[str], str | None] | None
+    ) -> None:
+        """Register confirmed managed-group routes for message correlation.
+
+        The resolver must return no destination when the group is disabled,
+        unverified, or a guest membership has ended. It never changes direct
+        configured-contact lookup or its independent eligibility.
+        """
+        self._extra_route_resolver = resolver
 
     def use_volatile_storage(self) -> None:
         """Discard untrusted restored state and avoid writing the disk store."""
@@ -138,7 +150,19 @@ class ChannelRegistry:
                 conversation_id = item.get("conversation_id")
                 recipient_fingerprint = item.get("recipient_fingerprint")
                 expires_at = item.get("expires_at")
-                contact = self.resolve_conversation(conversation_id)
+                destination = self._conversation_destination(conversation_id)
+                # A managed group route is deliberately unconfirmed at
+                # startup. Keep its opaque, bounded quote token dormant until
+                # a fresh roster verifies the route; resolve_message checks
+                # the destination fingerprint again before exposing the ID.
+                pending_managed_route = (
+                    isinstance(conversation_id, str)
+                    and re.fullmatch(
+                        r"(?:group_conversation|guest_direct)_[0-9a-f]{32}",
+                        conversation_id,
+                    )
+                    is not None
+                )
                 if (
                     isinstance(token, str)
                     and isinstance(raw_id, str)
@@ -148,9 +172,14 @@ class ChannelRegistry:
                     and isinstance(expires_at, (int, float))
                     and expires_at > now
                     and token == self.message_token(raw_id)
-                    and contact is not None
-                    and recipient_fingerprint
-                    == self._recipient_fingerprint(contact.recipient)
+                    and re.fullmatch(r"rec_[0-9a-f]{32}", recipient_fingerprint)
+                    is not None
+                    and (
+                        recipient_fingerprint
+                        == self._recipient_fingerprint(destination)
+                        if destination is not None
+                        else pending_managed_route
+                    )
                 ):
                     self._messages[token] = _TrackedMessage(
                         raw_id,
@@ -221,6 +250,15 @@ class ChannelRegistry:
                 return contact if matches == 1 else None
         return None
 
+    def _conversation_destination(self, conversation_id: str) -> str | None:
+        """Resolve one currently allowed route solely for message ownership."""
+        contact = self.resolve_conversation(conversation_id)
+        if contact is not None:
+            return contact.recipient
+        if self._extra_route_resolver is not None:
+            return self._extra_route_resolver(conversation_id)
+        return None
+
     def message_token(self, raw_id: str) -> str:
         """Create one deterministic public ID across WAHA serialized variants."""
         if not isinstance(raw_id, str) or not raw_id:
@@ -235,8 +273,8 @@ class ChannelRegistry:
 
     async def async_remember_message(self, raw_id: str, conversation_id: str) -> str:
         """Keep a WAHA ID privately for bounded quoted replies/reactions."""
-        contact = self.resolve_conversation(conversation_id)
-        if contact is None:
+        destination = self._conversation_destination(conversation_id)
+        if destination is None:
             raise ValueError("Unknown WAHA conversation")
         token = self.message_token(raw_id)
         async with self._lock:
@@ -248,7 +286,7 @@ class ChannelRegistry:
                 self._messages[token] = _TrackedMessage(
                     raw_id,
                     conversation_id,
-                    self._recipient_fingerprint(contact.recipient),
+                    self._recipient_fingerprint(destination),
                     now + MESSAGE_TTL_SECONDS,
                 )
                 self._prune(now)
@@ -261,15 +299,14 @@ class ChannelRegistry:
 
     def resolve_message(self, token: str, conversation_id: str) -> str | None:
         """Return a tracked WAHA ID only for the same configured conversation."""
-        contact = self.resolve_conversation(conversation_id)
-        if contact is None:
+        destination = self._conversation_destination(conversation_id)
+        if destination is None:
             return None
         item = self._messages.get(token)
         if (
             item is None
             or item.conversation_id != conversation_id
-            or item.recipient_fingerprint
-            != self._recipient_fingerprint(contact.recipient)
+            or item.recipient_fingerprint != self._recipient_fingerprint(destination)
             or item.expires_at <= time.time()
         ):
             return None

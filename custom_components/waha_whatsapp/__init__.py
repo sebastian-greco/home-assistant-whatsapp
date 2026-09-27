@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPStatus
 from typing import cast
 
@@ -32,6 +34,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 
 from .api import (
     WahaAuthenticationError,
@@ -56,6 +59,7 @@ from .const import (
     ATTR_TO,
     CONF_ADDON_SLUG,
     CONF_API_URL,
+    CONF_GUEST_GROUP_ENABLED,
     CONF_PERSON_ENTITY_ID,
     CONF_RECIPIENT,
     CONF_SESSION,
@@ -64,10 +68,14 @@ from .const import (
     DEFAULT_NO_ACTION_TITLE,
     DEFAULT_SETTLE_SECONDS,
     DOMAIN,
+    SERVICE_GET_GROUP_MEMBERSHIP,
     SERVICE_SEND_MESSAGE,
     SERVICE_SEND_POLL,
     SERVICE_SEND_TO_CONVERSATION,
 )
+from .guest_inbound import WahaGuestInboundManager
+from .guest_manager import MIN_GOWS_VERSION, GuestGroupManager
+from .guest_registry import GuestRegistry
 from .helpers import normalize_recipient, render_notification
 from .inbound import WahaInboundManager
 from .migration import (
@@ -111,6 +119,13 @@ SEND_TO_CONVERSATION_SCHEMA = vol.Schema(
     }
 )
 
+GET_GROUP_MEMBERSHIP_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CONFIG_ENTRY_ID): cv.string,
+        vol.Optional("membership_id"): vol.All(cv.string, vol.Length(min=1)),
+    }
+)
+
 MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 
 SEND_POLL_SCHEMA = vol.Schema(
@@ -137,6 +152,9 @@ class WahaRuntimeData:
     poll_manager: WahaPollManager
     channel_registry: ChannelRegistry
     inbound_manager: WahaInboundManager
+    guest_registry: GuestRegistry
+    guest_manager: GuestGroupManager
+    guest_inbound_manager: WahaGuestInboundManager
 
 
 type WahaConfigEntry = ConfigEntry[WahaRuntimeData]
@@ -164,6 +182,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         _async_handle_send_to_conversation,
         schema=SEND_TO_CONVERSATION_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_GROUP_MEMBERSHIP,
+        _async_handle_get_group_membership,
+        schema=GET_GROUP_MEMBERSHIP_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
     return True
 
@@ -235,6 +260,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         raise ConfigEntryNotReady(f"Unable to connect to WAHA: {err}") from err
 
     channel_registry = ChannelRegistry(hass, entry, client)
+    guest_registry = GuestRegistry(hass, entry.entry_id)
+    guest_manager = GuestGroupManager(hass, entry, client, guest_registry)
+    channel_registry.set_extra_route_resolver(
+        lambda conversation_id: (
+            guest_registry.resolve_route(conversation_id)
+            or guest_registry.resolve_group_conversation(conversation_id)
+        )
+    )
     poll_manager = WahaPollManager(
         hass,
         entry,
@@ -256,21 +289,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
             "Could not restore WAHA channel state; using volatile state until reload"
         )
         channel_registry.use_volatile_storage()
-    inbound_manager = WahaInboundManager(hass, entry, channel_registry)
+    inbound_manager = WahaInboundManager(
+        hass,
+        entry,
+        channel_registry,
+        guest_registry,
+        refresh_guest_membership=lambda: guest_manager.async_reconcile(force=True),
+    )
+    guest_inbound_manager = WahaGuestInboundManager(
+        hass,
+        entry,
+        guest_registry,
+        channel_registry,
+        verified_bot_jid=session.account_id or "",
+        refresh_membership=lambda: guest_manager.async_reconcile(force=True),
+    )
     webhook_id = entry.data[CONF_WEBHOOK_ID]
+    guest_events_requested = entry.options.get(CONF_GUEST_GROUP_ENABLED) is True
+    guest_events_capable = guest_events_requested and _supports_guest_webhooks(server)
+    guest_webhook_failure = False
+    guest_callbacks_ready = False
     webhook.async_register(
         hass,
         DOMAIN,
         f"WAHA messages and poll actions ({entry.title})",
         webhook_id,
         lambda callback_hass, callback_id, request: _async_handle_waha_webhook(
-            poll_manager, inbound_manager, callback_hass, callback_id, request
+            poll_manager,
+            inbound_manager,
+            guest_manager,
+            guest_inbound_manager,
+            guest_callbacks_ready,
+            callback_hass,
+            callback_id,
+            request,
         ),
         local_only=True,
     )
     try:
         webhook_url = _webhook_url(hass, entry, webhook_id)
-        await client.async_ensure_webhook(webhook_url, entry.data[CONF_WEBHOOK_SECRET])
+        if guest_events_capable:
+            guest_events_capable = await _async_ensure_channel_webhook(
+                client, webhook_url, entry.data[CONF_WEBHOOK_SECRET], group_events=True
+            )
+            guest_webhook_failure = not guest_events_capable
+        else:
+            await _async_ensure_channel_webhook(
+                client, webhook_url, entry.data[CONF_WEBHOOK_SECRET]
+            )
     except WahaError as err:
         webhook.async_unregister(hass, webhook_id)
         poll_manager.stop()
@@ -284,13 +350,67 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         channel_registry.stop()
         raise
 
+    if guest_events_capable:
+        status = await guest_manager.async_setup()
+        guest_callbacks_ready = True
+        if status["ready"]:
+            try:
+                current_session = await client.async_get_session()
+            except WahaError:
+                guest_manager.suspend("unverified_bot_account")
+            else:
+                if current_session.account_id:
+                    guest_inbound_manager.update_verified_bot_jid(
+                        current_session.account_id
+                    )
+    else:
+        await guest_registry.async_start()
+        guest_manager.disable_events(
+            "guest_webhook_unavailable"
+            if guest_webhook_failure
+            else "unsupported_waha_capabilities"
+            if guest_events_requested
+            else "disabled"
+        )
+
     entry.runtime_data = WahaRuntimeData(
-        client, server, session, poll_manager, channel_registry, inbound_manager
+        client,
+        server,
+        session,
+        poll_manager,
+        channel_registry,
+        inbound_manager,
+        guest_registry,
+        guest_manager,
+        guest_inbound_manager,
     )
     entry.async_on_unload(lambda: webhook.async_unregister(hass, webhook_id))
     entry.async_on_unload(poll_manager.stop)
     entry.async_on_unload(channel_registry.stop)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
+    if guest_events_capable:
+
+        async def _async_periodic_guest_refresh(_now) -> None:
+            """Reconcile missed participant events without changing other channels."""
+            result = await guest_manager.async_reconcile(force=True)
+            if result["ready"]:
+                try:
+                    current_session = await client.async_get_session()
+                except WahaError:
+                    guest_manager.suspend("unverified_bot_account")
+                else:
+                    if current_session.account_id:
+                        guest_inbound_manager.update_verified_bot_jid(
+                            current_session.account_id
+                        )
+
+        entry.async_on_unload(
+            async_track_time_interval(
+                hass,
+                _async_periodic_guest_refresh,
+                timedelta(minutes=5),
+            )
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -377,10 +497,12 @@ async def _async_handle_send_poll(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_handle_send_to_conversation(call: ServiceCall) -> ServiceResponse:
-    """Send text to a configured conversation without exposing its recipient."""
+    """Send to an eligible direct contact, group, or current guest route."""
     conversation_id = call.data[ATTR_CONVERSATION_ID]
     entry = None
     contact = None
+    group_destination = None
+    guest_destination = None
     for candidate in call.hass.config_entries.async_entries(DOMAIN):
         if candidate.state is not ConfigEntryState.LOADED:
             continue
@@ -390,8 +512,14 @@ async def _async_handle_send_to_conversation(call: ServiceCall) -> ServiceRespon
         if resolved is not None:
             entry, contact = candidate, resolved
             break
+        guests = candidate.runtime_data.guest_registry
+        group_destination = guests.resolve_group_conversation(conversation_id)
+        guest_destination = guests.resolve_route(conversation_id)
+        if group_destination is not None or guest_destination is not None:
+            entry = candidate
+            break
 
-    if entry is None or contact is None:
+    if entry is None:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="invalid_conversation",
@@ -408,11 +536,45 @@ async def _async_handle_send_to_conversation(call: ServiceCall) -> ServiceRespon
             )
 
     try:
-        result = await entry.runtime_data.client.async_send_text(
-            contact.recipient,
-            call.data[ATTR_MESSAGE],
-            reply_to_message_id=quoted_id,
-        )
+        if contact is not None:
+            result = await entry.runtime_data.client.async_send_text(
+                contact.recipient,
+                call.data[ATTR_MESSAGE],
+                reply_to_message_id=quoted_id,
+            )
+        elif group_destination is not None:
+            guest_manager = entry.runtime_data.guest_manager
+            verified = await guest_manager.async_verify_group_destination(
+                group_destination
+            )
+            if not verified:
+                raise ValueError("Managed group is not verified")
+            result = await entry.runtime_data.client.async_send_group_text(
+                group_destination,
+                call.data[ATTR_MESSAGE],
+                reply_to_message_id=quoted_id,
+            )
+        elif guest_destination is not None:
+
+            async def _send_guest(destination: str) -> WahaMessage:
+                return await entry.runtime_data.client.async_send_text(
+                    destination,
+                    call.data[ATTR_MESSAGE],
+                    reply_to_message_id=quoted_id,
+                )
+
+            result = await entry.runtime_data.guest_registry.async_with_route(
+                conversation_id,
+                entry.runtime_data.guest_manager.async_verify_guest_destination,
+                _send_guest,
+            )
+        else:
+            raise ValueError("Unknown managed conversation")
+    except ValueError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_conversation",
+        ) from err
     except WahaError as err:
         raise HomeAssistantError(
             translation_domain=DOMAIN,
@@ -437,6 +599,21 @@ async def _async_handle_send_to_conversation(call: ServiceCall) -> ServiceRespon
             response["message_id"] = message_id
         return response
     return None
+
+
+async def _async_handle_get_group_membership(call: ServiceCall) -> ServiceResponse:
+    """Return a phone-free, explicit current/unknown group membership snapshot."""
+    entry = _loaded_entry(call.hass, call.data[CONF_CONFIG_ENTRY_ID])
+    guest_manager = entry.runtime_data.guest_manager
+    # This query may drive access automations, so a cached roster is not
+    # sufficient proof of current membership. Reconcile read-only and return
+    # ready=false if WAHA or the group safeguards cannot be verified.
+    await guest_manager.async_reconcile(force=True)
+    snapshot = entry.runtime_data.guest_registry.snapshot(
+        membership_id=call.data.get("membership_id")
+    )
+    snapshot["failure_reason"] = guest_manager.failure_reason
+    return snapshot
 
 
 async def _async_remember_outbound(entry: WahaConfigEntry, result: WahaMessage) -> None:
@@ -533,9 +710,44 @@ def _webhook_url(hass: HomeAssistant, entry: WahaConfigEntry, webhook_id: str) -
     )
 
 
+def _supports_guest_webhooks(server: WahaServer) -> bool:
+    """Keep older external WAHA servers' direct/poll webhooks unchanged."""
+    if not isinstance(server.engine, str) or server.engine.upper() != "GOWS":
+        return False
+    match = re.fullmatch(
+        r"(\d{4})\.(\d{1,2})\.(\d+)(?:\+[0-9A-Za-z.-]+)?", server.version
+    )
+    return bool(match and tuple(map(int, match.groups())) >= MIN_GOWS_VERSION)
+
+
+async def _async_ensure_channel_webhook(
+    client: WahaClient,
+    url: str,
+    hmac_key: str,
+    *,
+    group_events: bool = False,
+) -> bool:
+    """Subscribe optional group events without disrupting the existing channel."""
+    if group_events:
+        try:
+            await client.async_ensure_webhook(url, hmac_key, group_events=True)
+        except WahaError:
+            _LOGGER.warning(
+                "WAHA guest webhook events were unavailable; "
+                "individual notifications and polls remain enabled"
+            )
+        else:
+            return True
+    await client.async_ensure_webhook(url, hmac_key)
+    return False
+
+
 async def _async_handle_waha_webhook(
     manager: WahaPollManager,
     inbound_manager: WahaInboundManager,
+    guest_manager: GuestGroupManager,
+    guest_inbound_manager: WahaGuestInboundManager,
+    guest_callbacks_ready: bool,
     hass: HomeAssistant,
     webhook_id: str,
     request: Request,
@@ -552,9 +764,16 @@ async def _async_handle_waha_webhook(
     payload = manager.decode_payload(raw_body)
     if payload is None:
         return Response(status=HTTPStatus.BAD_REQUEST)
-    if payload.get("event") in ("poll.vote", "poll.vote.failed"):
+    event_name = payload.get("event")
+    if event_name in ("poll.vote", "poll.vote.failed"):
         await manager.async_handle_payload(payload)
-    elif payload.get("event") in ("message", "message.reaction"):
+    elif isinstance(event_name, str) and event_name.startswith("group.v2."):
+        if guest_callbacks_ready:
+            await guest_manager.async_handle_webhook(payload)
+    elif event_name in ("message", "message.reaction") and (
+        not guest_callbacks_ready
+        or not await guest_inbound_manager.async_handle_payload(payload)
+    ):
         await inbound_manager.async_handle_payload(payload)
     return Response(status=HTTPStatus.OK)
 

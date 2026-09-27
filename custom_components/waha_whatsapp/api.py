@@ -70,6 +70,15 @@ class WahaMessage:
     chat_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class WahaGroupParticipant:
+    """One member in WAHA's cross-engine v2 group roster."""
+
+    id: str
+    role: str
+    pn: str | None
+
+
 class WahaClient:
     """Small async client for a local WAHA server."""
 
@@ -146,6 +155,27 @@ class WahaClient:
         data = await self._request("POST", "/api/sendText", json=payload)
         return WahaMessage(id=_message_id(data), chat_id=chat_id)
 
+    async def async_send_group_text(
+        self,
+        group_id: str,
+        text: str,
+        *,
+        reply_to_message_id: str | None = None,
+    ) -> WahaMessage:
+        """Send only to a validated group JID; caller verifies managed ownership."""
+        if not _valid_group_id(group_id):
+            raise ValueError("Invalid WAHA group ID")
+        payload = {
+            "session": self.session_name,
+            "chatId": group_id,
+            "text": text,
+            "linkPreview": True,
+        }
+        if reply_to_message_id is not None:
+            payload["reply_to"] = reply_to_message_id
+        data = await self._request("POST", "/api/sendText", json=payload)
+        return WahaMessage(id=_message_id(data), chat_id=group_id)
+
     async def async_send_poll(
         self,
         recipient: str,
@@ -186,7 +216,146 @@ class WahaClient:
                 "WAHA returned an invalid LID phone number"
             ) from err
 
-    async def async_ensure_webhook(self, url: str, hmac_key: str) -> bool:
+    async def async_create_group(self, name: str, participants: list[str]) -> str:
+        """Create a group once; callers must persist its ID before further writes.
+
+        A timeout has an unknown outcome and must not be retried automatically.
+        """
+        if not name.strip() or not participants:
+            raise ValueError("Group name and initial participants are required")
+        data = await self._request(
+            "POST",
+            f"/api/{quote(self.session_name, safe='')}/groups",
+            json={"name": name, "participants": _participant_body(participants)},
+        )
+        # The GOWS engine in WAHA 2026.9.1 returns the raw Go GroupInfo
+        # (capitalized ``JID``), while other engines may return ``id``.
+        # The create endpoint has no documented response schema, so accept
+        # only these exact, validated identifiers and never search by name.
+        group_id = data.get("JID", data.get("id")) if isinstance(data, dict) else None
+        if not _valid_group_id(group_id):
+            raise WahaResponseError("WAHA did not return a valid group ID")
+        return group_id
+
+    async def async_get_group(self, group_id: str) -> dict[str, Any]:
+        """Read the exact saved group, without searching by its mutable name."""
+        data = await self._request("GET", self._group_path(group_id))
+        returned_id = (
+            data.get("JID", data.get("id")) if isinstance(data, dict) else None
+        )
+        if returned_id != group_id:
+            raise WahaResponseError("WAHA returned invalid group information")
+        return data
+
+    async def async_get_group_participants(
+        self, group_id: str
+    ) -> list[WahaGroupParticipant]:
+        """Read the cross-engine roster, retaining LID and verified PN separately."""
+        data = await self._request(
+            "GET", f"{self._group_path(group_id)}/participants/v2"
+        )
+        if not isinstance(data, list):
+            raise WahaResponseError("WAHA returned an invalid group roster")
+        participants = []
+        for item in data:
+            if not isinstance(item, dict):
+                raise WahaResponseError("WAHA returned an invalid group participant")
+            participant_id = item.get("id")
+            role = item.get("role")
+            pn = item.get("pn")
+            if (
+                not _valid_participant_id(participant_id)
+                or role not in ("left", "participant", "admin", "superadmin")
+                or (pn is not None and not _valid_participant_id(pn, pn_only=True))
+            ):
+                raise WahaResponseError("WAHA returned an invalid group participant")
+            participants.append(WahaGroupParticipant(participant_id, role, pn))
+        return participants
+
+    async def async_add_group_participants(
+        self, group_id: str, participants: list[str]
+    ) -> None:
+        """Request addition; caller must confirm each member in a fresh roster."""
+        data = await self._request(
+            "POST",
+            f"{self._group_path(group_id)}/participants/add",
+            json={"participants": _participant_body(participants)},
+        )
+        if _explicit_write_failure(data):
+            raise WahaResponseError("WAHA did not add group participants")
+
+    async def async_promote_group_admins(
+        self, group_id: str, participants: list[str]
+    ) -> None:
+        """Request promotion; caller must confirm every role in a fresh roster."""
+        data = await self._request(
+            "POST",
+            f"{self._group_path(group_id)}/admin/promote",
+            json={"participants": _participant_body(participants)},
+        )
+        if _explicit_write_failure(data):
+            raise WahaResponseError("WAHA did not promote group admins")
+
+    async def async_get_group_security(self, group_id: str) -> dict[str, bool]:
+        """Read all membership safeguards and message permissions."""
+        path = f"{self._group_path(group_id)}/settings/security"
+        fields = {
+            "info_admin_only": ("info-admin-only", "adminsOnly"),
+            "messages_admin_only": ("messages-admin-only", "adminsOnly"),
+            "members_can_add": ("member-add-mode", "membersCanAddNewMember"),
+            "membership_approval_required": (
+                "membership-approval",
+                "newMembersApprovalRequired",
+            ),
+        }
+        result = {}
+        for name, (suffix, field) in fields.items():
+            data = await self._request("GET", f"{path}/{suffix}")
+            if not isinstance(data, dict) or type(data.get(field)) is not bool:
+                raise WahaResponseError(f"WAHA returned invalid {suffix} group setting")
+            result[name] = data[field]
+        return result
+
+    async def async_set_group_security(
+        self,
+        group_id: str,
+        *,
+        info_admin_only: bool,
+        messages_admin_only: bool,
+        members_can_add: bool,
+        membership_approval_required: bool,
+    ) -> None:
+        """Set all four controls; caller must read them back before readiness."""
+        path = f"{self._group_path(group_id)}/settings/security"
+        settings = (
+            ("info-admin-only", "adminsOnly", info_admin_only),
+            ("messages-admin-only", "adminsOnly", messages_admin_only),
+            ("member-add-mode", "membersCanAddNewMember", members_can_add),
+            (
+                "membership-approval",
+                "newMembersApprovalRequired",
+                membership_approval_required,
+            ),
+        )
+        for suffix, field, value in settings:
+            if type(value) is not bool:
+                raise ValueError(f"{field} must be a boolean")
+            data = await self._request("PUT", f"{path}/{suffix}", json={field: value})
+            if _explicit_write_failure(data):
+                raise WahaResponseError(f"WAHA did not update {suffix} group setting")
+
+    def _group_path(self, group_id: str) -> str:
+        """Encode the exact group JID as one URL path component."""
+        if not _valid_group_id(group_id):
+            raise ValueError("Invalid WAHA group ID")
+        return (
+            f"/api/{quote(self.session_name, safe='')}/groups/"
+            f"{quote(group_id, safe='')}"
+        )
+
+    async def async_ensure_webhook(
+        self, url: str, hmac_key: str, *, group_events: bool = False
+    ) -> bool:
         """Add or update our channel webhook without changing unrelated webhooks."""
         session_path = f"/api/sessions/{quote(self.session_name, safe='')}"
         data = await self._request("GET", session_path)
@@ -207,9 +376,20 @@ class WahaClient:
         ):
             raise WahaResponseError("WAHA returned invalid webhook configuration")
 
+        events = ["poll.vote", "poll.vote.failed", "message", "message.reaction"]
+        if group_events:
+            events.extend(
+                [
+                    "group.v2.join",
+                    "group.v2.leave",
+                    "group.v2.participants",
+                    "group.v2.participants.join-request",
+                    "group.v2.update",
+                ]
+            )
         desired = {
             "url": url,
-            "events": ["poll.vote", "poll.vote.failed", "message", "message.reaction"],
+            "events": events,
             "hmac": {"key": hmac_key},
             "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
         }
@@ -287,6 +467,46 @@ def _message_id(data: Any) -> str | None:
         if isinstance(raw_id, dict) and isinstance(raw_id.get("id"), str):
             return raw_id["id"]
     return None
+
+
+def _valid_group_id(value: Any) -> bool:
+    """Accept numeric and legacy numeric-hyphen group JIDs, not paths."""
+    if not isinstance(value, str) or not value.endswith("@g.us"):
+        return False
+    local = value.removesuffix("@g.us")
+    segments = local.split("-")
+    return len(segments) in (1, 2) and all(
+        1 <= len(segment) <= 20 and segment.isascii() and segment.isdigit()
+        for segment in segments
+    )
+
+
+def _explicit_write_failure(data: Any) -> bool:
+    """Detect WAHA's explicit failed-write shapes; roster remains authoritative."""
+    return data is False or (isinstance(data, dict) and data.get("success") is False)
+
+
+def _valid_participant_id(value: Any, *, pn_only: bool = False) -> bool:
+    """Accept WAHA phone-number and LID account JIDs."""
+    if not isinstance(value, str):
+        return False
+    suffixes = ("@c.us",) if pn_only else ("@c.us", "@lid")
+    return any(
+        value.endswith(suffix)
+        and 1 <= len(value.removesuffix(suffix)) <= 20
+        and value.removesuffix(suffix).isascii()
+        and value.removesuffix(suffix).isdigit()
+        for suffix in suffixes
+    )
+
+
+def _participant_body(participants: list[str]) -> list[dict[str, str]]:
+    """Validate a non-empty, unambiguous batch before an external write."""
+    if not participants or len(participants) != len(set(participants)):
+        raise ValueError("Group participants must be non-empty and unique")
+    if not all(_valid_participant_id(item) for item in participants):
+        raise ValueError("Invalid WAHA participant ID")
+    return [{"id": item} for item in participants]
 
 
 def _webhook_matches(current: dict[str, Any], desired: dict[str, Any]) -> bool:

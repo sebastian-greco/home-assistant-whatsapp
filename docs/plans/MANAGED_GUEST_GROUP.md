@@ -1,12 +1,17 @@
 # Managed guest group implementation plan
 
-Status: planned, not implemented. Updated: 2026-09-27.
-Release version: to be assigned after implementation and verification.
-Priority: next feature phase, before incoming voice transcription.
+Status: included in integration version 1.5.0; not live-verified.
+Updated: 2026-09-28.
+The normative current references are [user guide](../GUEST_GROUPS.md),
+[API reference](../GUEST_GROUP_API.md),
+[automation guide](../GUEST_GROUP_AUTOMATIONS.md), and
+[live test checklist](../GUEST_GROUP_HA_TEST.md). Sections below retain the
+original design rationale and verification criteria; use the linked API
+reference for the exact implemented contract.
 
-All event examples and new action names below are proposed contracts. They
-cannot be used with the currently released integration. Final documentation
-must replace proposals with the exact tested contract before release.
+The event examples and action descriptions below record the original proposal;
+some fields and recovery behavior differ from the implementation. Do not use
+them as recipes or as the normative public schema.
 
 ## Goal and responsibility boundary
 
@@ -49,12 +54,16 @@ individual-contact polls remain supported.
 
 ### WAHA prerequisite
 
-The current HAOS app pins GOWS 2026.7.1. Required APIs were introduced later:
+The source tree's HAOS app image now pins GOWS 2026.9.1 (app 0.2.3). The
+required API floor is GOWS 2026.8.2. APIs were introduced after the earlier
+2026.7.1 research pin:
 admin-only member addition in [2026.7.2](https://github.com/devlikeapro/waha/releases/tag/2026.7.2),
 and membership approval in [2026.8.2](https://github.com/devlikeapro/waha/releases/tag/2026.8.2).
-The intended fully provisioned policy therefore requires at least the documented
-2026.8.2 API set, not just a HACS integration update. The capability research
-note is [WAHA group capabilities](WAHA_GROUP_CAPABILITIES.md).
+The fully provisioned policy therefore requires at least the documented
+2026.8.2 API set, not just a HACS integration update. Static API/source checks
+and tests do not prove live behavior against a linked WhatsApp account. The
+historical capability research note is
+[WAHA group capabilities](WAHA_GROUP_CAPABILITIES.md).
 
 Select and test a compatible GOWS image, pin its exact digest, and include a
 separate HAOS app version/changelog update. Preserve session data; verify
@@ -67,7 +76,7 @@ image or live upgrade is selected/performed by this planning change.
 ### Setup
 
 Configuration provides **Enable guest group**, a group name (suggested default
-`Casita — Guests`), and a preview of mapped human administrators. Derive that
+`Guests`), and a preview of mapped human administrators. Derive that
 preview from configured recipient -> optional Person -> active HA administrator
 user. Evaluate eligibility per config entry, excluding inactive and system-generated
 HA users. Do not borrow a recipient mapping from another integration entry.
@@ -77,8 +86,9 @@ before provisioning. Require at least one eligible human administrator.
 
 Provisioning creates the group, saves its identity, adds/promotes the confirmed
 administrators, and verifies: only admins can add members/edit group information;
-invite-link joins require admin approval. Members may send messages. Casita's
-WhatsApp account stays an admin so the integration can manage the group.
+invite-link joins require admin approval. Members may send messages. The
+connected WhatsApp account stays an admin so the integration can manage the
+group.
 Setup must report participant-add/privacy failures and unsuccessful promotions.
 
 Do not mark the group ready before all required steps are verified. A failed
@@ -147,12 +157,13 @@ reassignment, integration deletion, lost storage, or retention cleanup may
 break continuity. No promise of a globally permanent identity. Names, public
 IDs, and conversation handles are metadata, not secrets or permission tokens.
 
-Active memberships are not evicted to meet a storage cap. Closed records use
-bounded tombstone retention; determine and document limits during registry
-implementation. Preserve closed IDs long enough for reconciliation and never
-reuse them. If continuity cannot be proven, flag uncertainty instead of silently
-associating a new stay with an old one. Consumer-owned PIN mappings must outlive
-the integration's tombstones as needed; the integration never stores the PIN.
+Active memberships are not evicted to meet a storage cap. The implementation
+retains at most 512 closed records and removes them after 180 days; see the
+[API reference](../GUEST_GROUP_API.md). Preserve closed IDs while retained and
+never reuse them. If continuity cannot be proven, flag uncertainty instead of
+silently associating a new stay with an old one. Consumer-owned records must
+outlive the integration's tombstones as needed; the integration never stores
+a PIN.
 
 ## Proposed public event contract
 

@@ -33,6 +33,7 @@ def test_service_metadata_matches_actions() -> None:
     """All public WAHA actions have editor metadata."""
     services = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
     assert set(services) == {
+        "get_group_membership",
         "send_message",
         "send_poll",
         "send_to_conversation",
@@ -79,11 +80,11 @@ def test_notify_devices_are_scoped_to_recipient_subentries() -> None:
     )
 
 
-def test_notify_platform_has_only_individual_contacts() -> None:
-    """The notify platform does not create household-group entities."""
+def test_notify_platform_preserves_individual_contacts_and_opt_in_guest_group() -> None:
+    """The managed WhatsApp group is separate from removed household fan-outs."""
     source = (INTEGRATION / "notify.py").read_text()
 
-    assert "WahaGroupNotifyEntity" not in source
+    assert "WahaGuestGroupNotifyEntity" in source
     assert "RECIPIENT_GROUP_" not in source
     assert "config_entry.subentries.items()" in source
 

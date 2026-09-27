@@ -12,7 +12,7 @@ import math
 import re
 import time
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .channel_registry import ChannelRegistry
+    from .guest_registry import GuestRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,11 +54,15 @@ class WahaInboundManager:
         hass: HomeAssistant,
         entry: ConfigEntry,
         registry: ChannelRegistry,
+        guest_registry: GuestRegistry | None = None,
+        refresh_guest_membership: Callable[[], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         """Keep routing and deduplication delegated to the channel registry."""
         self._hass = hass
         self._entry = entry
         self._registry = registry
+        self._guest_registry = guest_registry
+        self._refresh_guest_membership = refresh_guest_membership
         self._rejections: Counter[str] = Counter()
         self.accepted_count = 0
 
@@ -197,6 +202,43 @@ class WahaInboundManager:
             "sender": contact.event_sender(),
             **detail,
         }
+        # A configured contact keeps its independent direct conversation.
+        # Current guest membership is additive metadata only, never a second
+        # event or a replacement for its existing notify/contact identity.
+        if self._guest_registry is not None:
+            member = self._guest_registry.resolve_member(
+                raw_chat, occurred_at=event_timestamp
+            )
+            if member is not None and self._refresh_guest_membership is not None:
+                try:
+                    refreshed = await self._refresh_guest_membership()
+                except Exception:
+                    refreshed = {"ready": False}
+                member = (
+                    self._guest_registry.resolve_member(
+                        raw_chat, occurred_at=event_timestamp
+                    )
+                    if refreshed.get("ready")
+                    else None
+                )
+            if member is not None:
+                group = self._guest_registry.snapshot()
+                if group["ready"]:
+                    event_data["sender"]["participant_id"] = member["participant_id"]
+                    event_data["group"] = {
+                        "group_id": group["group_id"],
+                        "purpose": "guests",
+                    }
+                    event_data["membership"] = {
+                        "membership_id": member["membership_id"],
+                        "kind": member["kind"],
+                        "status": member["status"],
+                        "whatsapp_role": member["whatsapp_role"],
+                    }
+                    if direct_route := member.get("direct_conversation_id"):
+                        event_data["membership"]["direct_conversation_id"] = (
+                            direct_route
+                        )
         context = await self._async_person_context(contact.person_entity_id)
         self._hass.bus.async_fire(EVENT_WAHA_WHATSAPP, event_data, context=context)
         self.accepted_count += 1

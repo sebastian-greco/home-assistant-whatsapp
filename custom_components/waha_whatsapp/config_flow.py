@@ -13,15 +13,19 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     ConfigSubentry,
     ConfigSubentryFlow,
+    OptionsFlow,
     SubentryFlowResult,
 )
 from homeassistant.const import CONF_API_KEY, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntityFilterSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -41,16 +45,29 @@ from .api import (
 from .const import (
     CONF_ADDON_SLUG,
     CONF_API_URL,
+    CONF_GUEST_GROUP_ENABLED,
+    CONF_GUEST_GROUP_EVER_ENABLED,
+    CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS,
+    CONF_GUEST_GROUP_NAME,
+    CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT,
     CONF_PERSON_ENTITY_ID,
     CONF_RECIPIENT,
     CONF_SESSION,
     CONF_WEBHOOK_ID,
     CONF_WEBHOOK_SECRET,
     DEFAULT_API_URL,
+    DEFAULT_GUEST_GROUP_NAME,
     DEFAULT_SESSION,
     DOMAIN,
     SUBENTRY_TYPE_RECIPIENT,
 )
+from .guest_admins import (
+    GuestAdminPreview,
+    async_guest_admin_preview,
+    reviewed_admin_fingerprint,
+)
+from .guest_manager import GuestGroupError, GuestGroupManager
+from .guest_registry import GuestRegistry
 from .helpers import normalize_recipient
 
 
@@ -106,6 +123,14 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
     MINOR_VERSION = 3
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: WahaConfigEntry,
+    ) -> WahaWhatsAppOptionsFlow:
+        """Offer opt-in guest-group configuration for an existing entry."""
+        return WahaWhatsAppOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize discovery state."""
@@ -299,6 +324,292 @@ class WahaWhatsAppConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=REAUTH_SCHEMA,
             errors=errors,
         )
+
+
+class WahaWhatsAppOptionsFlow(OptionsFlow):
+    """Review guest-group eligibility before recording an opt-in request."""
+
+    def __init__(self) -> None:
+        """Keep the reviewed proposal only for this options-flow instance."""
+        self._proposal: dict[str, Any] | None = None
+        self._reviewed_contacts: tuple[tuple[str, str], ...] = ()
+        self._reviewed_gaps: tuple[tuple[str, str], ...] = ()
+        self._reviewed_fingerprint: str | None = None
+        self._recovery_group_id: str | None = None
+        self._recovery_bot_account: str | None = None
+
+    def _recovery_manager(self) -> GuestGroupManager | None:
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        manager = getattr(runtime, "guest_manager", None)
+        return manager if isinstance(manager, GuestGroupManager) else None
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show mapped hosts and require a decision for each unmapped admin."""
+        preview = await async_guest_admin_preview(self.hass, self.config_entry)
+        options = self.config_entry.options
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            previously_enabled = (
+                options.get(CONF_GUEST_GROUP_EVER_ENABLED) is True
+                or options.get(CONF_GUEST_GROUP_ENABLED) is True
+                or CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT in options
+            )
+            enabled = user_input.get(CONF_GUEST_GROUP_ENABLED) is True
+            name = str(user_input.get(CONF_GUEST_GROUP_NAME, "")).strip()
+            raw_excluded = user_input.get(CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS, [])
+            gap_ids = {gap.user_id for gap in preview.gaps}
+            if not isinstance(raw_excluded, list) or not all(
+                isinstance(item, str) for item in raw_excluded
+            ):
+                errors["base"] = "invalid_exclusions"
+            else:
+                excluded = set(raw_excluded)
+                if len(excluded) != len(raw_excluded) or not excluded <= gap_ids:
+                    errors["base"] = "invalid_exclusions"
+                elif enabled and (not name or len(name) > 100):
+                    errors[CONF_GUEST_GROUP_NAME] = "invalid_group_name"
+                elif enabled and not preview.contacts:
+                    errors["base"] = "no_mapped_admin"
+                elif enabled and excluded != gap_ids:
+                    errors["base"] = "unresolved_admins"
+                else:
+                    proposal = {
+                        CONF_GUEST_GROUP_ENABLED: enabled,
+                        CONF_GUEST_GROUP_NAME: name or DEFAULT_GUEST_GROUP_NAME,
+                        CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS: sorted(excluded),
+                    }
+                    if not enabled:
+                        return self.async_create_entry(
+                            title="",
+                            data={
+                                **options,
+                                **proposal,
+                                CONF_GUEST_GROUP_EVER_ENABLED: previously_enabled,
+                            },
+                        )
+                    self._proposal = proposal
+                    self._reviewed_contacts = tuple(
+                        (contact.user_id, contact.chat_id)
+                        for contact in preview.contacts
+                    )
+                    self._reviewed_gaps = tuple(
+                        (gap.user_id, gap.reason) for gap in preview.gaps
+                    )
+                    self._reviewed_fingerprint = reviewed_admin_fingerprint(
+                        preview,
+                        sorted(excluded),
+                        self.config_entry.data[CONF_WEBHOOK_SECRET],
+                    )
+                    manager = self._recovery_manager()
+                    if (
+                        manager is not None
+                        and manager.registry.provisioning_status
+                        in ("creating", "create_unknown")
+                        and options.get(CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT)
+                        == self._reviewed_fingerprint
+                    ):
+                        return await self.async_step_recover()
+                    return await self.async_step_confirm()
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                _guest_group_options_schema(preview, options),
+                user_input or options,
+            ),
+            errors=errors,
+            description_placeholders=_guest_admin_placeholders(preview),
+        )
+
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Require a separate submit after a fresh eligibility check."""
+        if self._proposal is None:
+            return await self.async_step_init()
+        preview = await async_guest_admin_preview(self.hass, self.config_entry)
+        current_contacts = tuple(
+            (contact.user_id, contact.chat_id) for contact in preview.contacts
+        )
+        current_gaps = tuple((gap.user_id, gap.reason) for gap in preview.gaps)
+        gap_ids = {gap.user_id for gap in preview.gaps}
+        excluded = set(self._proposal[CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS])
+        current_fingerprint = reviewed_admin_fingerprint(
+            preview,
+            sorted(excluded),
+            self.config_entry.data[CONF_WEBHOOK_SECRET],
+        )
+        if (
+            current_contacts != self._reviewed_contacts
+            or current_gaps != self._reviewed_gaps
+            or current_fingerprint != self._reviewed_fingerprint
+            or not current_contacts
+            or gap_ids != excluded
+        ):
+            self._proposal = None
+            return self.async_show_form(
+                step_id="init",
+                data_schema=_guest_group_options_schema(
+                    preview, self.config_entry.options
+                ),
+                errors={"base": "admin_mapping_changed"},
+                description_placeholders=_guest_admin_placeholders(preview),
+            )
+        if user_input is not None:
+            options = self.config_entry.options
+            previously_enabled = (
+                options.get(CONF_GUEST_GROUP_EVER_ENABLED) is True
+                or options.get(CONF_GUEST_GROUP_ENABLED) is True
+                or CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT in options
+            )
+            if not previously_enabled:
+                try:
+                    await GuestRegistry(
+                        self.hass, self.config_entry.entry_id
+                    ).async_initialize_empty()
+                except Exception:
+                    return self.async_show_form(
+                        step_id="confirm",
+                        data_schema=vol.Schema({}),
+                        errors={"base": "guest_registry_unavailable"},
+                        description_placeholders={
+                            **_guest_admin_placeholders(preview),
+                            "group_name": self._proposal[CONF_GUEST_GROUP_NAME],
+                        },
+                    )
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self.config_entry.options,
+                    **self._proposal,
+                    CONF_GUEST_GROUP_EVER_ENABLED: True,
+                    CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT: current_fingerprint,
+                },
+            )
+        return self.async_show_form(
+            step_id="confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                **_guest_admin_placeholders(preview),
+                "group_name": self._proposal[CONF_GUEST_GROUP_NAME],
+            },
+        )
+
+    async def async_step_recover(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Require an exact group ID; never discover by mutable group name."""
+        manager = self._recovery_manager()
+        if self._proposal is None or manager is None:
+            return await self.async_step_init()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            raw_group_id = user_input.get("recovery_group_id")
+            try:
+                reviewed = await manager.async_review_unknown_group(raw_group_id)
+            except GuestGroupError as err:
+                errors["base"] = err.reason
+            else:
+                self._recovery_group_id = reviewed["group_id"]
+                self._recovery_bot_account = reviewed["bot_account"]
+                return await self.async_step_recover_confirm()
+        return self.async_show_form(
+            step_id="recover",
+            data_schema=vol.Schema(
+                {vol.Required("recovery_group_id"): TextSelector(TextSelectorConfig())}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_recover_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Display both immutable IDs, then reverify immediately before adoption."""
+        manager = self._recovery_manager()
+        if (
+            self._proposal is None
+            or self._recovery_group_id is None
+            or self._recovery_bot_account is None
+            or manager is None
+        ):
+            return await self.async_step_init()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                await manager.async_adopt_unknown_group(
+                    self._recovery_group_id,
+                    reviewed_bot_account=self._recovery_bot_account,
+                )
+            except GuestGroupError as err:
+                errors["base"] = err.reason
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        **self.config_entry.options,
+                        **self._proposal,
+                        CONF_GUEST_GROUP_EVER_ENABLED: True,
+                        CONF_GUEST_GROUP_REVIEWED_ADMIN_FINGERPRINT: (
+                            self._reviewed_fingerprint
+                        ),
+                    },
+                )
+        return self.async_show_form(
+            step_id="recover_confirm",
+            data_schema=vol.Schema({}),
+            errors=errors,
+            description_placeholders={
+                "group_id": self._recovery_group_id,
+                "bot_account": self._recovery_bot_account,
+            },
+        )
+
+
+def _guest_group_options_schema(
+    preview: GuestAdminPreview, options: Mapping[str, Any]
+) -> vol.Schema:
+    """Offer explicit exclusions only for currently unmapped HA admins."""
+    fields: dict[Any, Any] = {
+        vol.Required(
+            CONF_GUEST_GROUP_ENABLED,
+            default=options.get(CONF_GUEST_GROUP_ENABLED, False),
+        ): BooleanSelector(),
+        vol.Required(
+            CONF_GUEST_GROUP_NAME,
+            default=options.get(CONF_GUEST_GROUP_NAME, DEFAULT_GUEST_GROUP_NAME),
+        ): TextSelector(TextSelectorConfig()),
+    }
+    if preview.gaps:
+        prior_exclusions = options.get(CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS, [])
+        gap_ids = {gap.user_id for gap in preview.gaps}
+        defaults = [user_id for user_id in prior_exclusions if user_id in gap_ids]
+        fields[
+            vol.Optional(CONF_GUEST_GROUP_EXCLUDED_ADMIN_USER_IDS, default=defaults)
+        ] = SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    {"value": gap.user_id, "label": f"{gap.name} ({gap.reason})"}
+                    for gap in preview.gaps
+                ],
+                multiple=True,
+            )
+        )
+    return vol.Schema(fields)
+
+
+def _guest_admin_placeholders(preview: GuestAdminPreview) -> dict[str, str]:
+    """Summarize only this entry's mapped and unmapped administrators."""
+    mapped = [
+        f"{contact.name} ({contact.person_entity_id}, {contact.recipient})"
+        for contact in preview.contacts
+    ]
+    gaps = [f"{gap.name} ({gap.reason})" for gap in preview.gaps]
+    return {
+        "mapped_admins": ", ".join(mapped) or "None",
+        "unmapped_admins": ", ".join(gaps) or "None",
+    }
 
 
 class RecipientSubentryFlow(ConfigSubentryFlow):

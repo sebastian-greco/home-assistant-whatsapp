@@ -20,6 +20,9 @@ and understand that WhatsApp can restrict it.
 - Single-selection WhatsApp polls that reuse Home Assistant Companion App
   action IDs and the `mobile_app_notification_action` event.
 - A native `notify` entity for every configured individual contact.
+- One opt-in managed guest group per WAHA connection, with membership events,
+  group notifications, and private per-stay member routes in integration
+  version 1.5.0 (GOWS 2026.8.2 or newer required).
 - Optional association of a contact with an existing Home Assistant Person.
 - Automatic, private discovery of the HAOS app by the HACS integration.
 - Manual connection support for WAHA running elsewhere on the network.
@@ -28,13 +31,20 @@ and understand that WhatsApp can restrict it.
   contacts, plus a text action that replies to the same conversation.
 - QR linking, session lifecycle controls, diagnostics, and persistent backups.
 
-Group chats, voice transcription, access provisioning, and command execution
-are future phases. Inbound messages never run Home Assistant actions by
+The managed guest group is included in integration version 1.5.0, but it has
+not yet passed the manual live HA/WhatsApp test. Check the compatible
+GOWS requirement and readiness steps before enabling it. Arbitrary group
+discovery, voice transcription, access provisioning, and command execution
+remain out of scope. Inbound messages never run Home Assistant actions by
 themselves; an automation or conversation agent must explicitly consume them.
 
-The next planned feature is a managed guest group with membership events and
-private guest conversations. See the [implementation plans](docs/plans/README.md)
-for scope and proposed contracts; these are not released features.
+Managed guest-group references:
+
+- [User guide](docs/GUEST_GROUPS.md)
+- [Event and action API](docs/GUEST_GROUP_API.md)
+- [Automation guidance](docs/GUEST_GROUP_AUTOMATIONS.md)
+- [Manual live test checklist](docs/GUEST_GROUP_HA_TEST.md)
+- [Design and implementation plan](docs/plans/MANAGED_GUEST_GROUP.md)
 
 ## Requirements
 

@@ -1,7 +1,11 @@
 # WAHA managed-group capability check
 
-Research-only note — 2026-09-27. No groups were created and no live HA or
-WhatsApp state was changed.
+Historical research note — 2026-09-27. No groups were created and no live HA
+or WhatsApp state was changed. The source tree has since updated its bundled
+image to GOWS 2026.9.1 (see `waha/Dockerfile`); this note records the earlier
+2026.7.1 gap, not the current image pin. The managed-group implementation and
+current documentation are present, but no live linked-session group trial has
+been completed. See the [manual test checklist](../GUEST_GROUP_HA_TEST.md).
 
 ## Pin
 

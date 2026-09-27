@@ -86,6 +86,67 @@ def make_registry(monkeypatch, *, entry=None, store=None, client=None):
 
 
 @pytest.mark.asyncio
+async def test_external_group_route_tracks_quotes_only_while_confirmed(monkeypatch):
+    registry = make_registry(monkeypatch)
+    await registry.async_start()
+    route = "group_conversation_opaque"
+    enabled = True
+
+    def resolver(conversation_id):
+        return "120363123456789@g.us" if enabled and conversation_id == route else None
+
+    registry.set_extra_route_resolver(resolver)
+    token = await registry.async_remember_message("outbound-id", route)
+    assert registry.resolve_message(token, route) == "outbound-id"
+    assert registry.resolve_message(token, "other") is None
+    enabled = False
+    assert registry.resolve_message(token, route) is None
+
+
+@pytest.mark.asyncio
+async def test_guest_route_message_cannot_follow_new_membership(monkeypatch):
+    registry = make_registry(monkeypatch)
+    await registry.async_start()
+    destinations = {"guest_direct_stay_a": "441234567890@c.us"}
+    registry.set_extra_route_resolver(destinations.get)
+    token = await registry.async_remember_message(
+        "guest-message", "guest_direct_stay_a"
+    )
+    assert registry.resolve_message(token, "guest_direct_stay_a") == "guest-message"
+    destinations.clear()
+    destinations["guest_direct_stay_b"] = "441234567890@c.us"
+    assert registry.resolve_message(token, "guest_direct_stay_a") is None
+    assert registry.resolve_message(token, "guest_direct_stay_b") is None
+
+
+@pytest.mark.asyncio
+async def test_managed_quote_token_waits_for_post_restart_verification(monkeypatch):
+    """A restored group quote remains dormant until its exact route is ready."""
+    store = FakeStore()
+    route = "group_conversation_" + "a" * 32
+    group_jid = "120363123456789@g.us"
+    first = make_registry(monkeypatch, store=store)
+    first.set_extra_route_resolver(
+        lambda conversation_id: group_jid if conversation_id == route else None
+    )
+    await first.async_start()
+    token = await first.async_remember_message("group-message-id", route)
+
+    enabled = False
+    restored = make_registry(monkeypatch, store=store)
+    restored.set_extra_route_resolver(
+        lambda conversation_id: (
+            group_jid if enabled and conversation_id == route else None
+        )
+    )
+    await restored.async_start()
+    assert restored.resolve_message(token, route) is None
+
+    enabled = True
+    assert restored.resolve_message(token, route) == "group-message-id"
+
+
+@pytest.mark.asyncio
 async def test_configured_direct_chat_and_lid_routing(monkeypatch) -> None:
     """Only a unique configured direct contact resolves, including GOWS LIDs."""
     client = FakeClient({"123456789@lid": "393331234567@c.us"})

@@ -274,6 +274,23 @@ async def test_ensure_webhook_is_idempotent() -> None:
 
 
 @pytest.mark.asyncio
+async def test_group_webhook_subscription_is_explicitly_opt_in() -> None:
+    session = FakeSession(
+        FakeResponse(200, {"name": "house", "config": {"webhooks": []}}),
+        FakeResponse(200, {"name": "house"}),
+    )
+    await make_client(session).async_ensure_webhook(
+        "http://homeassistant:8123/api/webhook/private",
+        "hmac-secret",
+        group_events=True,
+    )
+    events = session.requests[1]["json"]["config"]["webhooks"][0]["events"]
+    assert "poll.vote" in events
+    assert "group.v2.participants" in events
+    assert "group.v2.participants.join-request" in events
+
+
+@pytest.mark.asyncio
 async def test_authentication_error() -> None:
     """Authentication failures use a dedicated exception for HA reauth."""
     session = FakeSession(FakeResponse(401, {"message": "Bad API key"}))
@@ -281,3 +298,234 @@ async def test_authentication_error() -> None:
 
     with pytest.raises(api.WahaAuthenticationError, match="Bad API key"):
         await client.async_get_server()
+
+
+@pytest.mark.asyncio
+async def test_create_group_requires_a_returned_group_id() -> None:
+    """Creation returns only the exact identity to persist; no name-based lookup."""
+    session = FakeSession(FakeResponse(201, {"JID": "123456@g.us"}))
+
+    group_id = await make_client(session).async_create_group(
+        "Casita — Guests", ["393331234567@c.us"]
+    )
+
+    assert group_id == "123456@g.us"
+    assert session.requests[0]["method"] == "POST"
+    assert session.requests[0]["url"].endswith("/api/house/groups")
+    assert session.requests[0]["json"] == {
+        "name": "Casita — Guests",
+        "participants": [{"id": "393331234567@c.us"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_group_rejects_invalid_raw_gows_jid_without_retry() -> None:
+    """A malformed GOWS create response must not trigger a second write."""
+    session = FakeSession(FakeResponse(201, {"JID": "wrong@c.us"}))
+
+    with pytest.raises(api.WahaResponseError, match="valid group ID"):
+        await make_client(session).async_create_group("Guests", ["1@c.us"])
+
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_group_text_restricts_group_jid_without_changing_direct_send() -> (
+    None
+):
+    session = FakeSession(FakeResponse(200, {"id": "sent-1"}))
+    client = make_client(session)
+    result = await client.async_send_group_text(
+        "120363123456789-1234567890@g.us", "Welcome"
+    )
+    assert result.chat_id == "120363123456789-1234567890@g.us"
+    assert session.requests[0]["json"]["chatId"] == result.chat_id
+    with pytest.raises(ValueError, match="group ID"):
+        await client.async_send_group_text("../../wrong@g.us", "No")
+    with pytest.raises(ValueError, match="Phone recipients"):
+        await client.async_send_text("120363123456789@g.us", "Not a direct recipient")
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_and_read_legacy_hyphenated_group_id() -> None:
+    """Older WhatsApp groups use a numeric-numeric JID local part."""
+    group_id = "39333-1234567890@g.us"
+    session = FakeSession(
+        FakeResponse(201, {"id": group_id}),
+        FakeResponse(200, {"id": group_id, "subject": "Guests"}),
+    )
+    client = make_client(session)
+
+    assert await client.async_create_group("Guests", ["111@c.us"]) == group_id
+    assert (await client.async_get_group(group_id))["id"] == group_id
+    assert session.requests[1]["url"].endswith("/groups/39333-1234567890%40g.us")
+
+
+@pytest.mark.asyncio
+async def test_read_raw_gows_group_info_requires_exact_saved_jid() -> None:
+    """GOWS returns an unwrapped Go GroupInfo rather than a generic id field."""
+    session = FakeSession(FakeResponse(200, {"JID": "123456@g.us"}))
+    assert (await make_client(session).async_get_group("123456@g.us"))["JID"] == (
+        "123456@g.us"
+    )
+
+    mismatch = make_client(FakeSession(FakeResponse(200, {"JID": "other@g.us"})))
+    with pytest.raises(api.WahaResponseError, match="invalid group information"):
+        await mismatch.async_get_group("123456@g.us")
+
+
+@pytest.mark.asyncio
+async def test_group_id_path_injection_is_rejected_before_request() -> None:
+    session = FakeSession()
+    client = make_client(session)
+
+    with pytest.raises(ValueError, match="Invalid WAHA group ID"):
+        await client.async_get_group("../39333-1234567890@g.us")
+    assert session.requests == []
+
+
+@pytest.mark.asyncio
+async def test_create_group_rejects_missing_id_without_retry() -> None:
+    session = FakeSession(FakeResponse(200, {"subject": "Casita — Guests"}))
+
+    with pytest.raises(api.WahaResponseError, match="valid group ID"):
+        await make_client(session).async_create_group("Casita — Guests", ["1@c.us"])
+
+    assert len(session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_exact_group_and_roster() -> None:
+    session = FakeSession(
+        FakeResponse(200, {"id": "123456@g.us", "subject": "Renamed"}),
+        FakeResponse(
+            200,
+            [
+                {"id": "111@lid", "pn": "393331234567@c.us", "role": "admin"},
+                {"id": "222@c.us", "role": "participant"},
+            ],
+        ),
+    )
+    client = make_client(session)
+
+    assert (await client.async_get_group("123456@g.us"))["subject"] == "Renamed"
+    assert await client.async_get_group_participants("123456@g.us") == [
+        api.WahaGroupParticipant("111@lid", "admin", "393331234567@c.us"),
+        api.WahaGroupParticipant("222@c.us", "participant", None),
+    ]
+    assert session.requests[0]["url"].endswith("/groups/123456%40g.us")
+    assert session.requests[1]["url"].endswith("/groups/123456%40g.us/participants/v2")
+
+
+@pytest.mark.asyncio
+async def test_roster_rejects_unexpected_role_and_alias() -> None:
+    session = FakeSession(
+        FakeResponse(200, [{"id": "111@lid", "role": "owner"}]),
+        FakeResponse(200, [{"id": "111@lid", "role": "admin", "pn": "other@lid"}]),
+    )
+    client = make_client(session)
+
+    with pytest.raises(api.WahaResponseError, match="participant"):
+        await client.async_get_group_participants("123456@g.us")
+    with pytest.raises(api.WahaResponseError, match="participant"):
+        await client.async_get_group_participants("123456@g.us")
+
+
+@pytest.mark.asyncio
+async def test_add_and_promote_use_participant_dto() -> None:
+    session = FakeSession(FakeResponse(200, True), FakeResponse(200, True))
+    client = make_client(session)
+
+    await client.async_add_group_participants("123456@g.us", ["111@c.us"])
+    await client.async_promote_group_admins("123456@g.us", ["111@c.us"])
+
+    assert session.requests[0]["url"].endswith("/participants/add")
+    assert session.requests[1]["url"].endswith("/admin/promote")
+    assert all(
+        request["json"] == {"participants": [{"id": "111@c.us"}]}
+        for request in session.requests
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_and_promote_reject_explicit_failure() -> None:
+    session = FakeSession(
+        FakeResponse(200, False), FakeResponse(200, {"success": False})
+    )
+    client = make_client(session)
+
+    with pytest.raises(api.WahaResponseError, match="did not add"):
+        await client.async_add_group_participants("123456@g.us", ["111@c.us"])
+    with pytest.raises(api.WahaResponseError, match="did not promote"):
+        await client.async_promote_group_admins("123456@g.us", ["111@c.us"])
+
+
+@pytest.mark.asyncio
+async def test_bad_participant_batch_fails_before_write() -> None:
+    session = FakeSession()
+    client = make_client(session)
+
+    with pytest.raises(ValueError, match="unique"):
+        await client.async_add_group_participants(
+            "123456@g.us", ["111@c.us", "111@c.us"]
+        )
+    with pytest.raises(ValueError, match="Invalid"):
+        await client.async_promote_group_admins("123456@g.us", ["../bad"])
+    assert session.requests == []
+
+
+@pytest.mark.asyncio
+async def test_group_security_set_and_read_back() -> None:
+    session = FakeSession(
+        *(FakeResponse(200, True) for _ in range(4)),
+        FakeResponse(200, {"adminsOnly": True}),
+        FakeResponse(200, {"adminsOnly": False}),
+        FakeResponse(200, {"membersCanAddNewMember": False}),
+        FakeResponse(200, {"newMembersApprovalRequired": True}),
+    )
+    client = make_client(session)
+
+    await client.async_set_group_security(
+        "123456@g.us",
+        info_admin_only=True,
+        messages_admin_only=False,
+        members_can_add=False,
+        membership_approval_required=True,
+    )
+    assert await client.async_get_group_security("123456@g.us") == {
+        "info_admin_only": True,
+        "messages_admin_only": False,
+        "members_can_add": False,
+        "membership_approval_required": True,
+    }
+    assert [request["json"] for request in session.requests[:4]] == [
+        {"adminsOnly": True},
+        {"adminsOnly": False},
+        {"membersCanAddNewMember": False},
+        {"newMembersApprovalRequired": True},
+    ]
+    assert [request["url"].rsplit("/", 1)[-1] for request in session.requests] == [
+        "info-admin-only",
+        "messages-admin-only",
+        "member-add-mode",
+        "membership-approval",
+    ] * 2
+
+
+@pytest.mark.asyncio
+async def test_group_security_refuses_failed_or_ambiguous_response() -> None:
+    session = FakeSession(FakeResponse(200, False))
+    with pytest.raises(api.WahaResponseError, match="did not update"):
+        await make_client(session).async_set_group_security(
+            "123456@g.us",
+            info_admin_only=True,
+            messages_admin_only=False,
+            members_can_add=False,
+            membership_approval_required=True,
+        )
+    assert len(session.requests) == 1
+
+    session = FakeSession(FakeResponse(200, {"adminsOnly": "false"}))
+    with pytest.raises(api.WahaResponseError, match="invalid"):
+        await make_client(session).async_get_group_security("123456@g.us")

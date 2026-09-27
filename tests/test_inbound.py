@@ -150,6 +150,73 @@ def _event(event="message", **payload_overrides):
 
 
 @pytest.mark.asyncio
+async def test_configured_contact_keeps_direct_route_with_current_membership_metadata():
+    manager, _registry, bus = _setup()
+
+    class GuestMembership:
+        def resolve_member(self, alias, *, occurred_at):
+            assert alias == PHONE
+            assert occurred_at == NOW
+            return {
+                "participant_id": "participant_opaque",
+                "membership_id": "membership_current",
+                "kind": "host",
+                "status": "active",
+                "whatsapp_role": "admin",
+            }
+
+        def snapshot(self):
+            return {"ready": True, "group_id": "group_opaque"}
+
+    manager._guest_registry = GuestMembership()
+    await manager.async_handle_payload(_event())
+    assert len(bus.fired) == 1
+    data = bus.fired[0][1]
+    assert data["conversation_id"] == "direct_abc"
+    assert data["sender"] == {
+        "contact_id": "contact_abc",
+        "notify_entity_id": "notify.waha_seba",
+        "person_entity_id": "person.seba",
+        "participant_id": "participant_opaque",
+    }
+    assert data["group"] == {"group_id": "group_opaque", "purpose": "guests"}
+    assert data["membership"]["membership_id"] == "membership_current"
+
+
+@pytest.mark.asyncio
+async def test_configured_contact_omits_membership_when_refresh_fails():
+    """A removed guest still has a contact event, without stale group claims."""
+    manager, _registry, bus = _setup()
+
+    class StaleGuest:
+        def resolve_member(self, _alias, *, occurred_at):
+            assert occurred_at == NOW
+            return {"participant_id": "stale", "membership_id": "old"}
+
+        def snapshot(self):
+            return {"ready": True, "group_id": "group_opaque"}
+
+    calls = []
+
+    async def refresh():
+        calls.append(True)
+        return {"ready": False}
+
+    manager._guest_registry = StaleGuest()
+    manager._refresh_guest_membership = refresh
+    await manager.async_handle_payload(_event())
+
+    assert calls == [True]
+    assert len(bus.fired) == 1
+    data = bus.fired[0][1]
+    assert data["conversation_type"] == "direct"
+    assert data["sender"]["contact_id"] == "contact_abc"
+    assert "participant_id" not in data["sender"]
+    assert "membership" not in data
+    assert "group" not in data
+
+
+@pytest.mark.asyncio
 async def test_unprompted_text_event_has_stable_opaque_channel_and_person_context():
     manager, registry, bus = _setup()
 

@@ -12,7 +12,14 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import WahaConfigEntry
 from .api import WahaError
-from .const import CONF_RECIPIENT, DOMAIN
+from .const import (
+    CONF_GUEST_GROUP_ENABLED,
+    CONF_GUEST_GROUP_NAME,
+    CONF_RECIPIENT,
+    DEFAULT_GUEST_GROUP_NAME,
+    DOMAIN,
+)
+from .guest_manager import GuestGroupError
 from .helpers import contact_state_attributes, render_notification
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +36,8 @@ async def async_setup_entry(
             [WahaNotifyEntity(config_entry, subentry)],
             config_subentry_id=subentry_id,
         )
+    if config_entry.options.get(CONF_GUEST_GROUP_ENABLED) is True:
+        async_add_entities([WahaGuestGroupNotifyEntity(config_entry)])
 
 
 class WahaNotifyEntity(NotifyEntity):
@@ -62,6 +71,56 @@ class WahaNotifyEntity(NotifyEntity):
             )
         except WahaError as err:
             raise _home_assistant_error(err) from err
+
+
+class WahaGuestGroupNotifyEntity(NotifyEntity):
+    """One opt-in notification destination for the exact managed group."""
+
+    _attr_supported_features = NotifyEntityFeature.TITLE
+    _attr_should_poll = True
+
+    def __init__(self, config_entry: WahaConfigEntry) -> None:
+        self.config_entry = config_entry
+        self._attr_name = config_entry.options.get(
+            CONF_GUEST_GROUP_NAME, DEFAULT_GUEST_GROUP_NAME
+        )
+        self._attr_unique_id = (
+            f"{config_entry.unique_id or config_entry.entry_id}_managed_guest_group"
+        )
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Do not offer group sends until identity/security/roster are confirmed."""
+        return self.config_entry.runtime_data.guest_manager.snapshot()["ready"]
+
+    @property
+    @override
+    def suggested_object_id(self) -> str:
+        return "waha_guests"
+
+    @override
+    async def async_send_message(self, message: str, title: str | None = None) -> None:
+        try:
+            result = (
+                await self.config_entry.runtime_data.guest_manager.async_send_to_group(
+                    render_notification(message, title)
+                )
+            )
+        except (GuestGroupError, WahaError) as err:
+            raise _home_assistant_error(err) from err
+        if result.id is not None:
+            conversation_id = self.config_entry.runtime_data.guest_registry.snapshot()[
+                "conversation_id"
+            ]
+            if isinstance(conversation_id, str):
+                try:
+                    registry = self.config_entry.runtime_data.channel_registry
+                    await registry.async_remember_message(result.id, conversation_id)
+                except Exception:
+                    _LOGGER.exception(
+                        "WAHA group notification sent but channel tracking failed"
+                    )
 
 
 async def _async_send_to_recipient(

@@ -84,3 +84,15 @@ send_to_conversation:
       example: msg_opaque_abc
       selector:
         text:
+
+get_group_membership:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: waha_whatsapp
+    membership_id:
+      example: membership_opaque_abc
+      selector:
+        text:

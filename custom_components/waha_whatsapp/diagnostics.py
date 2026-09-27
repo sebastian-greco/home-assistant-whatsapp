@@ -23,6 +23,7 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: WahaConfigEntry
 ) -> dict[str, Any]:
     """Return redacted server, session, and recipient diagnostics."""
+    guest = entry.runtime_data.guest_manager.snapshot()
     return {
         "config_entry": async_redact_data(dict(entry.data), TO_REDACT),
         "server": asdict(entry.runtime_data.server),
@@ -44,6 +45,20 @@ async def async_get_config_entry_diagnostics(
                 entry.runtime_data.channel_registry.persistence_available
             ),
             "webhook_configured": True,
+        },
+        "managed_guest_group": {
+            "ready": guest["ready"],
+            "confirmed": guest["confirmed"],
+            "provisioning_status": guest["provisioning_status"],
+            "failure_reason": guest["failure_reason"],
+            "revision": guest["revision"],
+            "observed_at": guest["observed_at"],
+            "active_count": sum(
+                member["status"] == "active" for member in guest["memberships"]
+            ),
+            "closed_count": sum(
+                member["status"] == "left" for member in guest["memberships"]
+            ),
         },
         "recipients": [
             {

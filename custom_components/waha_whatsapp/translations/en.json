@@ -106,6 +106,60 @@
       }
     }
   },
+  "options": {
+    "error": {
+      "admin_mapping_changed": "Administrator mappings changed during review. Check the updated list and submit again.",
+      "invalid_exclusions": "Select only the listed unmapped administrators, once each.",
+      "invalid_group_name": "Enter a group name of 1 to 100 characters.",
+      "group_recovery_unavailable": "This connection has no unknown group-creation outcome to recover.",
+      "invalid_recovery_group_id": "Enter the exact WhatsApp group ID ending in @g.us.",
+      "recovery_group_unverified": "WAHA could not verify that exact group. No group was adopted.",
+      "unsafe_group_settings": "This group does not have the required guest-group security settings.",
+      "bot_admin_unconfirmed": "The connected WhatsApp account is not a confirmed group administrator.",
+      "admin_role_drift": "At least one reviewed Home Assistant administrator is not a group administrator.",
+      "bot_account_changed": "The connected WhatsApp account changed. This group remains unavailable.",
+      "unverified_bot_account": "WAHA has not confirmed a connected WhatsApp account for this session.",
+      "unsupported_waha_capabilities": "Managed guest groups require WAHA GOWS version 2026.8.2 or newer.",
+      "guest_registry_unavailable": "Private guest-group state is missing or unavailable. No group will be created; restore the integration data or contact the maintainer.",
+      "unexpected_group_admin": "An unreviewed WhatsApp administrator is present. Review group roles before guest routing can resume.",
+      "no_mapped_admin": "At least one active human Home Assistant administrator must have a unique WhatsApp recipient in this connection.",
+      "unresolved_admins": "Map each listed administrator to a WhatsApp recipient or explicitly exclude them individually."
+    },
+    "step": {
+      "init": {
+        "data": {
+          "guest_group_enabled": "Enable managed guest group",
+          "guest_group_excluded_admin_user_ids": "Administrators to exclude",
+          "guest_group_name": "Group name"
+        },
+        "data_description": {
+          "guest_group_enabled": "Off by default. Enabling starts a separate confirmation step before any group provisioning can begin.",
+          "guest_group_excluded_admin_user_ids": "Explicitly exclude each unmapped administrator you do not want to add. You can instead map them to a Person and a WhatsApp recipient, then reopen this form.",
+          "guest_group_name": "Name for the one WhatsApp guest group managed by this connection."
+        },
+        "description": "Mapped administrators for this WAHA connection: {mapped_admins}. Unmapped or ambiguous administrators: {unmapped_admins}. No WhatsApp group is created before the final confirmation.",
+        "title": "Managed guest group"
+      },
+      "confirm": {
+        "description": "Confirm the request for group **{group_name}**. Mapped initial administrators: {mapped_admins}. Explicitly excluded administrators: {unmapped_admins}. Submitting may create the WhatsApp group, add and promote the mapped administrators, and apply group security settings after this entry reloads.",
+        "title": "Confirm guest-group setup"
+      },
+      "recover": {
+        "data": {
+          "recovery_group_id": "Exact WhatsApp group ID"
+        },
+        "data_description": {
+          "recovery_group_id": "Find the exact @g.us ID of the group that may have been created. This integration will not search by name or retry creation."
+        },
+        "description": "The previous group creation may have succeeded, but its result was not confirmed. Enter the exact group ID for read-only verification. No group will be created, renamed, or changed in this step.",
+        "title": "Recover unknown group creation"
+      },
+      "recover_confirm": {
+        "description": "Confirm adoption of exact group **{group_id}** for connected WhatsApp account **{bot_account}**. WAHA has verified its current security settings and administrator roles. Submitting saves this binding; later membership reconciliation remains read-only. Do not continue if either identity is unexpected.",
+        "title": "Confirm exact group and account"
+      }
+    }
+  },
   "exceptions": {
     "action_failed": {
       "message": "WAHA could not send the WhatsApp message: {error}"
@@ -126,13 +180,27 @@
       "message": "Invalid WhatsApp phone number: {error}"
     },
     "invalid_conversation": {
-      "message": "This WhatsApp conversation is not a configured contact or is no longer available."
+      "message": "This WhatsApp conversation is not a configured contact, verified managed group, or current member route."
     },
     "invalid_reply_target": {
       "message": "The quoted WhatsApp message is unknown or has expired. Send without a reply target instead."
     }
   },
   "services": {
+    "get_group_membership": {
+      "description": "Read the confirmed managed guest-group membership snapshot or one membership by ID. Returns opaque identifiers only; an unavailable snapshot is not an empty group.",
+      "fields": {
+        "config_entry_id": {
+          "description": "WAHA connection containing the managed group.",
+          "name": "WAHA connection"
+        },
+        "membership_id": {
+          "description": "Optional per-stay membership ID to look up. Omit for the current roster and retained closed records.",
+          "name": "Membership"
+        }
+      },
+      "name": "Get guest-group membership"
+    },
     "send_message": {
       "description": "Send a free-form WhatsApp message through the configured WAHA session.",
       "fields": {
@@ -190,10 +258,10 @@
       "name": "Send actionable poll"
     },
     "send_to_conversation": {
-      "description": "Send text to a configured WhatsApp conversation using its opaque conversation ID from a waha_whatsapp_event.",
+      "description": "Send text to a configured contact, verified managed group, or current member using an opaque conversation ID from a waha_whatsapp_event.",
       "fields": {
         "conversation_id": {
-          "description": "Conversation ID from a WAHA WhatsApp event. Does not contain a phone number.",
+          "description": "Conversation ID from a WAHA WhatsApp event. Guest private routes stop working after departure; IDs contain no phone number.",
           "name": "Conversation"
         },
         "message": {
