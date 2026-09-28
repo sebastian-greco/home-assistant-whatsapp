@@ -29,6 +29,9 @@ and understand that WhatsApp can restrict it.
 - A direct action for sending to an arbitrary phone number.
 - Structured events for inbound direct messages and reactions from configured
   contacts, plus a text action that replies to the same conversation.
+- Administrator-managed private-chat slash commands for selected contacts or
+  current guests, emitting `command.requested` events without executing HA actions
+  (integration v1.6.0).
 - QR linking, session lifecycle controls, diagnostics, and persistent backups.
 
 The managed guest group is included in integration version 1.5.0, but it has
@@ -45,6 +48,10 @@ Managed guest-group references:
 - [Automation guidance](docs/GUEST_GROUP_AUTOMATIONS.md)
 - [Manual live test checklist](docs/GUEST_GROUP_HA_TEST.md)
 - [Design and implementation plan](docs/plans/MANAGED_GUEST_GROUP.md)
+
+See the [command guide](docs/COMMANDS.md) for registration, event format,
+security boundaries, and a first live test. A command declaration does not
+run Home Assistant actions or grant access from WhatsApp group membership.
 
 ## Requirements
 

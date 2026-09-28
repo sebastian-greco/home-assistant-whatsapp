@@ -1,14 +1,16 @@
 # WhatsApp as a Home Assistant communication channel
 
-Status: v1.4 direct-channel architecture. The managed guest-group
-implementation is present in the current source tree, but has not yet been
-assigned a release version or verified in a live HA/WhatsApp trial. Its
+Status: v1.4 direct-channel architecture with managed guest groups released
+in v1.5.0, pending live HA/WhatsApp verification. Its
 normative current contracts are in the [user guide](GUEST_GROUPS.md),
 [API reference](GUEST_GROUP_API.md), [automation guide](GUEST_GROUP_AUTOMATIONS.md),
 and [live test checklist](GUEST_GROUP_HA_TEST.md). The group sections below
 are earlier design material and may differ from the implemented contract.
 Voice transcription, access provisioning, and command execution remain
-separate future work.
+separate future work. The v1.6.0 command registry recognizes
+explicitly registered private-chat slash commands and emits
+`command.requested` without executing an action; see the
+[command guide](COMMANDS.md).
 
 ## Why this exists
 
@@ -164,7 +166,7 @@ outbound media notifications.
 | --- | --- | --- |
 | Incoming voice transcription (working label v1.4.5) | `message.received` with `kind: audio`, then a derived `transcription.completed` event linked by `source_message_id` | Choose the transcription engine, language detection, retention, file-size limits, and whether audio ever leaves the mini PC. |
 | Group destinations and guest chat | `conversation_type: group`; `sender` remains the individual participant. Group join/leave are `group.participant.joined` and `group.participant.left` events, not messages. | Explicit group allowlist and identity mapping; what happens when a group member is unknown. |
-| Commands and AI assistant | A separate consumer interprets text/transcriptions/reactions and calls permitted Home Assistant actions, then replies via the channel. | Approval and authorization policy, especially for doors, locks, PINs, and guest access. |
+| Command execution and AI assistant | The v1.6.0 registry only recognizes explicitly allowed private text commands and publishes `command.requested`. A separate consumer may interpret requests and reply via the channel. | Verified execution authorization, especially for doors, locks, PINs, and guest access; public HA bus events alone are not sufficient proof. |
 | Acknowledgements or message edits | Additional event `type` values under the same versioned envelope. | Whether a real use case justifies them and how to handle order/duplication. |
 
 Group membership can become a *signal* that a guest arrived or left, but it

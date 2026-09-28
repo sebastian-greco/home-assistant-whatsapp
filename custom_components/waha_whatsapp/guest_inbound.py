@@ -6,8 +6,10 @@ before passing an envelope here. This manager never creates groups or sends.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -28,7 +30,10 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .channel_registry import ChannelRegistry
+    from .commands import CommandRegistry
     from .guest_registry import GuestRegistry
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WahaGuestInboundManager:
@@ -43,6 +48,7 @@ class WahaGuestInboundManager:
         *,
         verified_bot_jid: str,
         refresh_membership: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+        command_registry: CommandRegistry | None = None,
     ) -> None:
         self._hass = hass
         self._entry = entry
@@ -50,6 +56,7 @@ class WahaGuestInboundManager:
         self._channel = channel_registry
         self._verified_bot_jid = verified_bot_jid
         self._refresh_membership = refresh_membership
+        self._command_registry = command_registry
         # Reuse the existing, intentionally narrow content/reaction parser.
         self._detail_parser = WahaInboundManager(hass, entry, channel_registry)
 
@@ -213,36 +220,39 @@ class WahaGuestInboundManager:
         if not await self._channel.async_claim_event(raw_event_id):
             return False
 
-        self._hass.bus.async_fire(
-            EVENT_WAHA_WHATSAPP,
-            {
-                "schema_version": CHANNEL_SCHEMA_VERSION,
-                "event_id": self._channel.event_token(raw_event_id),
-                "type": (
-                    "message.received"
-                    if event == "message"
-                    else (
-                        "reaction.added"
-                        if detail["reaction"]["emoji"]
-                        else "reaction.removed"
-                    )
-                ),
-                "config_entry_id": self._entry.entry_id,
-                "conversation_id": conversation_id,
-                "conversation_type": conversation_type,
-                "occurred_at": datetime.fromtimestamp(
-                    occurred_seconds, tz=UTC
-                ).isoformat(),
-                "group": {"group_id": snapshot["group_id"], "purpose": "guests"},
-                "sender": sender,
-                "membership": {
-                    "membership_id": member["membership_id"],
-                    "kind": member["kind"],
-                    "status": member["status"],
-                    "whatsapp_role": member["whatsapp_role"],
-                    "direct_conversation_id": member["direct_conversation_id"],
-                },
-                **detail,
+        event_data = {
+            "schema_version": CHANNEL_SCHEMA_VERSION,
+            "event_id": self._channel.event_token(raw_event_id),
+            "type": (
+                "message.received"
+                if event == "message"
+                else (
+                    "reaction.added"
+                    if detail["reaction"]["emoji"]
+                    else "reaction.removed"
+                )
+            ),
+            "config_entry_id": self._entry.entry_id,
+            "conversation_id": conversation_id,
+            "conversation_type": conversation_type,
+            "occurred_at": datetime.fromtimestamp(occurred_seconds, tz=UTC).isoformat(),
+            "group": {"group_id": snapshot["group_id"], "purpose": "guests"},
+            "sender": sender,
+            "membership": {
+                "membership_id": member["membership_id"],
+                "kind": member["kind"],
+                "status": member["status"],
+                "whatsapp_role": member["whatsapp_role"],
+                "direct_conversation_id": member["direct_conversation_id"],
             },
-        )
+            **detail,
+        }
+        # HA callback listeners can run synchronously and mutate event data.
+        # Keep command recognition on the private, verified original.
+        self._hass.bus.async_fire(EVENT_WAHA_WHATSAPP, deepcopy(event_data))
+        if self._command_registry is not None:
+            try:
+                self._command_registry.publish_from_message(event_data)
+            except Exception:
+                _LOGGER.exception("WAHA guest command recognition failed")
         return True

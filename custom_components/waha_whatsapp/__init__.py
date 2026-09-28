@@ -46,6 +46,7 @@ from .api import (
     WahaSession,
 )
 from .channel_registry import ChannelRegistry
+from .commands import CommandRegistry, CommandRegistryError
 from .const import (
     ATTR_ACTIONS,
     ATTR_CONVERSATION_ID,
@@ -69,9 +70,12 @@ from .const import (
     DEFAULT_SETTLE_SECONDS,
     DOMAIN,
     SERVICE_GET_GROUP_MEMBERSHIP,
+    SERVICE_LIST_COMMANDS,
+    SERVICE_REGISTER_COMMAND,
     SERVICE_SEND_MESSAGE,
     SERVICE_SEND_POLL,
     SERVICE_SEND_TO_CONVERSATION,
+    SERVICE_UNREGISTER_COMMAND,
 )
 from .guest_inbound import WahaGuestInboundManager
 from .guest_manager import MIN_GOWS_VERSION, GuestGroupManager
@@ -126,6 +130,28 @@ GET_GROUP_MEMBERSHIP_SCHEMA = vol.Schema(
     }
 )
 
+REGISTER_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CONFIG_ENTRY_ID): cv.string,
+        vol.Required("name"): cv.string,
+        vol.Optional("aliases", default=[]): vol.All(
+            cv.ensure_list, [cv.string], vol.Length(max=5)
+        ),
+        vol.Optional("allowed_contacts", default=[]): vol.All(
+            cv.ensure_list, [cv.entity_id], vol.Length(max=64)
+        ),
+        vol.Optional("allow_current_guests", default=False): cv.boolean,
+    }
+)
+
+COMMAND_ENTRY_SCHEMA = vol.Schema({vol.Required(CONF_CONFIG_ENTRY_ID): cv.string})
+UNREGISTER_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CONFIG_ENTRY_ID): cv.string,
+        vol.Required("name"): cv.string,
+    }
+)
+
 MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 
 SEND_POLL_SCHEMA = vol.Schema(
@@ -155,6 +181,7 @@ class WahaRuntimeData:
     guest_registry: GuestRegistry
     guest_manager: GuestGroupManager
     guest_inbound_manager: WahaGuestInboundManager
+    command_registry: CommandRegistry
 
 
 type WahaConfigEntry = ConfigEntry[WahaRuntimeData]
@@ -188,6 +215,25 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_GET_GROUP_MEMBERSHIP,
         _async_handle_get_group_membership,
         schema=GET_GROUP_MEMBERSHIP_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REGISTER_COMMAND,
+        _async_handle_register_command,
+        schema=REGISTER_COMMAND_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UNREGISTER_COMMAND,
+        _async_handle_unregister_command,
+        schema=UNREGISTER_COMMAND_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_COMMANDS,
+        _async_handle_list_commands,
+        schema=COMMAND_ENTRY_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     return True
@@ -260,6 +306,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         raise ConfigEntryNotReady(f"Unable to connect to WAHA: {err}") from err
 
     channel_registry = ChannelRegistry(hass, entry, client)
+    command_registry = CommandRegistry(hass, entry.entry_id)
+    await command_registry.async_start()
     guest_registry = GuestRegistry(hass, entry.entry_id)
     guest_manager = GuestGroupManager(hass, entry, client, guest_registry)
     channel_registry.set_extra_route_resolver(
@@ -295,6 +343,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         channel_registry,
         guest_registry,
         refresh_guest_membership=lambda: guest_manager.async_reconcile(force=True),
+        command_registry=command_registry,
     )
     guest_inbound_manager = WahaGuestInboundManager(
         hass,
@@ -303,6 +352,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         channel_registry,
         verified_bot_jid=session.account_id or "",
         refresh_membership=lambda: guest_manager.async_reconcile(force=True),
+        command_registry=command_registry,
     )
     webhook_id = entry.data[CONF_WEBHOOK_ID]
     guest_events_requested = entry.options.get(CONF_GUEST_GROUP_ENABLED) is True
@@ -383,6 +433,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WahaConfigEntry) -> bool
         guest_registry,
         guest_manager,
         guest_inbound_manager,
+        command_registry,
     )
     entry.async_on_unload(lambda: webhook.async_unregister(hass, webhook_id))
     entry.async_on_unload(poll_manager.stop)
@@ -614,6 +665,62 @@ async def _async_handle_get_group_membership(call: ServiceCall) -> ServiceRespon
     )
     snapshot["failure_reason"] = guest_manager.failure_reason
     return snapshot
+
+
+async def _async_require_command_admin(call: ServiceCall) -> None:
+    """Require an active HA administrator for persistent command changes."""
+    user_id = call.context.user_id
+    user = await call.hass.auth.async_get_user(user_id) if user_id else None
+    if user is None or not user.is_active or not user.is_admin:
+        raise ServiceValidationError(
+            "Only an active Home Assistant administrator can manage WhatsApp commands"
+        )
+
+
+async def _async_handle_register_command(call: ServiceCall) -> None:
+    """Register an inert command selector, never an executable HA action."""
+    await _async_require_command_admin(call)
+    entry = _loaded_entry(call.hass, call.data[CONF_CONFIG_ENTRY_ID])
+    contact_ids: list[str] = []
+    for entity_id in call.data["allowed_contacts"]:
+        contact_entry, _, _ = _configured_recipient(call.hass, entity_id)
+        if contact_entry.entry_id != entry.entry_id:
+            raise ServiceValidationError(
+                "Allowed contact belongs to another WAHA entry"
+            )
+        entity = er.async_get(call.hass).async_get(entity_id)
+        if entity is None or entity.config_subentry_id is None:
+            raise ServiceValidationError("Allowed contact is unavailable")
+        contact_ids.append(entity.config_subentry_id)
+    try:
+        await entry.runtime_data.command_registry.async_register(
+            call.data["name"],
+            call.data["aliases"],
+            contact_ids,
+            call.data["allow_current_guests"],
+        )
+    except CommandRegistryError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_unregister_command(call: ServiceCall) -> None:
+    """Remove a registered command without changing its consumer automations."""
+    await _async_require_command_admin(call)
+    entry = _loaded_entry(call.hass, call.data[CONF_CONFIG_ENTRY_ID])
+    try:
+        await entry.runtime_data.command_registry.async_unregister(call.data["name"])
+    except CommandRegistryError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_list_commands(call: ServiceCall) -> ServiceResponse:
+    """List one entry's non-sensitive command declarations."""
+    await _async_require_command_admin(call)
+    entry = _loaded_entry(call.hass, call.data[CONF_CONFIG_ENTRY_ID])
+    try:
+        return {"commands": entry.runtime_data.command_registry.list_commands()}
+    except CommandRegistryError as err:
+        raise ServiceValidationError(str(err)) from err
 
 
 async def _async_remember_outbound(entry: WahaConfigEntry, result: WahaMessage) -> None:

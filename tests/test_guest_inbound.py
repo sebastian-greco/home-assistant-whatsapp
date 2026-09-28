@@ -12,6 +12,7 @@ from ._loader import load_integration_module  # noqa: E402
 
 guest_registry = load_integration_module("guest_registry")
 guest_inbound = load_integration_module("guest_inbound")
+commands = load_integration_module("commands")
 
 GROUP = "120363123456789-1234567890@g.us"
 BOT = "393331111111@c.us"
@@ -73,7 +74,7 @@ class FakeContact:
         }
 
 
-async def make_manager(*, aliases=(GUEST,), configured=()):
+async def make_manager(*, aliases=(GUEST,), configured=(), command_registry=None):
     """Start a ready private registry with one confirmed guest stay."""
     started = time() - 300
     registry = guest_registry.GuestRegistry(None, "entry-a", store=FakeStore())
@@ -103,14 +104,61 @@ async def make_manager(*, aliases=(GUEST,), configured=()):
     events = []
     hass = SimpleNamespace(
         bus=SimpleNamespace(
-            async_fire=lambda event_type, data: events.append((event_type, data))
+            async_fire=lambda event_type, data, **_kw: events.append((event_type, data))
         )
     )
     entry = SimpleNamespace(entry_id="entry-a", data={"session": "house"})
     manager = guest_inbound.WahaGuestInboundManager(
-        hass, entry, registry, channel, verified_bot_jid=BOT
+        hass,
+        entry,
+        registry,
+        channel,
+        verified_bot_jid=BOT,
+        command_registry=command_registry,
     )
     return manager, registry, channel, events, started
+
+
+@pytest.mark.asyncio
+async def test_guest_command_requires_private_current_member_message():
+    """The group itself cannot invoke the explicit private-only command."""
+    events = []
+
+    def fire(event_type, data, **_kw):
+        events.append((event_type, data))
+        if data["type"] == "message.received" and data["conversation_type"] == "direct":
+            data["membership"]["status"] = "left"
+            data["message"]["text"] = "/other"
+
+    bus = SimpleNamespace(async_fire=fire)
+    declarations = commands.CommandRegistry(
+        SimpleNamespace(bus=bus), "entry-a", store=FakeStore()
+    )
+    await declarations.async_start()
+    await declarations.async_register("status", [], [], True)
+    manager, _registry, _channel, inbound_events, _ = await make_manager(
+        command_registry=declarations
+    )
+    # Keep both publishers on one bus for ordering assertions.
+    manager._hass.bus = bus
+    group_message = envelope()
+    group_message["payload"]["body"] = "/status"
+    assert await manager.async_handle_payload(group_message) is True
+    assert [data["type"] for _, data in events] == ["message.received"]
+
+    private_message = envelope(sender=GUEST, participant=None)
+    private_message["id"] = "WA-EVENT-2"
+    private_message["payload"]["id"] = "WA-MESSAGE-2"
+    private_message["payload"]["body"] = "/status"
+    private_message["payload"]["chatId"] = GUEST
+    assert await manager.async_handle_payload(private_message) is True
+    assert [data["type"] for _, data in events] == [
+        "message.received",
+        "message.received",
+        "command.requested",
+    ]
+    assert events[-1][1]["membership"]["status"] == "active"
+    assert inbound_events == []
 
 
 def envelope(*, sender=GROUP, participant=GUEST, timestamp=None, event="message"):

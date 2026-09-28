@@ -96,3 +96,55 @@ get_group_membership:
       example: membership_opaque_abc
       selector:
         text:
+
+register_command:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: waha_whatsapp
+    name:
+      required: true
+      example: status
+      selector:
+        text:
+    aliases:
+      example:
+        - house
+      selector:
+        object:
+    allowed_contacts:
+      example:
+        - notify.waha_seba
+      selector:
+        entity:
+          filter:
+            domain: notify
+            integration: waha_whatsapp
+          multiple: true
+    allow_current_guests:
+      default: false
+      selector:
+        boolean:
+
+unregister_command:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: waha_whatsapp
+    name:
+      required: true
+      example: status
+      selector:
+        text:
+
+list_commands:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: waha_whatsapp

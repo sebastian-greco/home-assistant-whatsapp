@@ -5,6 +5,15 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-28
+
+### Added
+
+- Add administrator-managed, per-connection text command declarations for
+  selected configured contacts or explicitly allowed current guests. Accepted
+  private messages publish a structured `command.requested` channel event;
+  the integration does not execute Home Assistant actions.
+
 ## [1.5.0] - 2026-09-28
 
 ### Added
@@ -236,3 +245,4 @@ All notable changes are documented here. This project follows
 [1.4.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.0
 [1.4.1]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.4.1
 [1.5.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.5.0
+[1.6.0]: https://github.com/sebastian-greco/home-assistant-whatsapp/releases/tag/v1.6.0

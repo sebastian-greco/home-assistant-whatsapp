@@ -13,6 +13,7 @@ import re
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .channel_registry import ChannelRegistry
+    from .commands import CommandRegistry
     from .guest_registry import GuestRegistry
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,6 +58,7 @@ class WahaInboundManager:
         registry: ChannelRegistry,
         guest_registry: GuestRegistry | None = None,
         refresh_guest_membership: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+        command_registry: CommandRegistry | None = None,
     ) -> None:
         """Keep routing and deduplication delegated to the channel registry."""
         self._hass = hass
@@ -63,6 +66,7 @@ class WahaInboundManager:
         self._registry = registry
         self._guest_registry = guest_registry
         self._refresh_guest_membership = refresh_guest_membership
+        self._command_registry = command_registry
         self._rejections: Counter[str] = Counter()
         self.accepted_count = 0
 
@@ -240,7 +244,16 @@ class WahaInboundManager:
                             direct_route
                         )
         context = await self._async_person_context(contact.person_entity_id)
-        self._hass.bus.async_fire(EVENT_WAHA_WHATSAPP, event_data, context=context)
+        # HA callback listeners can run synchronously and mutate event data.
+        # Never use the public bus copy to authorize a command request.
+        self._hass.bus.async_fire(
+            EVENT_WAHA_WHATSAPP, deepcopy(event_data), context=deepcopy(context)
+        )
+        if self._command_registry is not None:
+            try:
+                self._command_registry.publish_from_message(event_data, context=context)
+            except Exception:
+                _LOGGER.exception("WAHA command recognition failed")
         self.accepted_count += 1
 
     def _message_detail(

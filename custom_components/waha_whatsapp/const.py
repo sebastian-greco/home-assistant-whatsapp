@@ -42,6 +42,9 @@ SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_POLL: Final = "send_poll"
 SERVICE_SEND_TO_CONVERSATION: Final = "send_to_conversation"
 SERVICE_GET_GROUP_MEMBERSHIP: Final = "get_group_membership"
+SERVICE_REGISTER_COMMAND: Final = "register_command"
+SERVICE_UNREGISTER_COMMAND: Final = "unregister_command"
+SERVICE_LIST_COMMANDS: Final = "list_commands"
 EVENT_WAHA_WHATSAPP: Final = "waha_whatsapp_event"
 CHANNEL_SCHEMA_VERSION: Final = 1
 

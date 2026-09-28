@@ -60,6 +60,16 @@ async def async_get_config_entry_diagnostics(
                 member["status"] == "left" for member in guest["memberships"]
             ),
         },
+        "commands": {
+            "available": entry.runtime_data.command_registry.available,
+            "failure_reason": entry.runtime_data.command_registry.failure_reason,
+            "registered_count": (
+                len(entry.runtime_data.command_registry.list_commands())
+                if entry.runtime_data.command_registry.available
+                else 0
+            ),
+            "requested_count": entry.runtime_data.command_registry.requested_count,
+        },
         "recipients": [
             {
                 "title": subentry.title,

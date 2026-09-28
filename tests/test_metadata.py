@@ -34,9 +34,12 @@ def test_service_metadata_matches_actions() -> None:
     services = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
     assert set(services) == {
         "get_group_membership",
+        "list_commands",
+        "register_command",
         "send_message",
         "send_poll",
         "send_to_conversation",
+        "unregister_command",
     }
 
 

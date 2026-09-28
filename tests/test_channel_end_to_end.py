@@ -26,6 +26,7 @@ finally:
         sys.modules["homeassistant.core"] = _previous_core
 
 registry_module = load_integration_module("channel_registry")
+commands_module = load_integration_module("commands")
 
 
 class _Store:
@@ -40,11 +41,131 @@ class _Store:
 
 
 class _Bus:
-    def __init__(self) -> None:
+    def __init__(self, *, mutate_message=False) -> None:
         self.events = []
+        self.mutate_message = mutate_message
 
     def async_fire(self, event_type, data, *, context=None):
         self.events.append((event_type, data, context))
+        if self.mutate_message and data["type"] == "message.received":
+            data["sender"]["contact_id"] = "attacker"
+            data["message"]["text"] = "/other"
+
+
+@pytest.mark.asyncio
+async def test_authenticated_direct_command_is_derived_after_message_dedup(
+    monkeypatch,
+) -> None:
+    """The command parser receives only the accepted inbound-manager output."""
+    monkeypatch.setattr(inbound.time, "time", lambda: 1_755_776_096)
+    monkeypatch.setattr(
+        registry_module,
+        "_notify_entity_id",
+        lambda _hass, _entry_id, _subentry_id: "notify.waha_seba",
+    )
+    bus = _Bus(mutate_message=True)
+    hass = SimpleNamespace(bus=bus, states=SimpleNamespace(get=lambda _id: None))
+    entry = SimpleNamespace(
+        entry_id="entry-one",
+        data={"session": "default", "webhook_secret": "stable-private-key"},
+        subentries={
+            "seba": SimpleNamespace(
+                subentry_id="seba",
+                subentry_type="recipient",
+                data={"recipient": "393331234567"},
+            )
+        },
+    )
+    client = SimpleNamespace(session_name="default")
+    channel = registry_module.ChannelRegistry(hass, entry, client, store=_Store())
+    await channel.async_start()
+    declarations = commands_module.CommandRegistry(hass, "entry-one", store=_Store())
+    await declarations.async_start()
+    await declarations.async_register("status", [], ["seba"], False)
+    manager = inbound.WahaInboundManager(
+        hass, entry, channel, command_registry=declarations
+    )
+    message = {
+        "id": "evt-command",
+        "event": "message",
+        "session": "default",
+        "payload": {
+            "id": "false_393331234567@c.us_CMD",
+            "timestamp": 1_755_776_096,
+            "from": "393331234567@c.us",
+            "fromMe": False,
+            "body": "/status",
+            "hasMedia": False,
+        },
+    }
+
+    await manager.async_handle_payload(message)
+    await manager.async_handle_payload(message)
+
+    assert [item[1]["type"] for item in bus.events] == [
+        "message.received",
+        "command.requested",
+    ]
+    assert bus.events[1][1]["command"]["name"] == "status"
+    assert bus.events[1][1]["sender"]["contact_id"] == "seba"
+    assert declarations.requested_count == 1
+
+
+@pytest.mark.asyncio
+async def test_command_parser_failure_does_not_break_existing_message_channel(
+    monkeypatch,
+) -> None:
+    """A command feature bug must not turn an accepted webhook into HTTP 500."""
+    monkeypatch.setattr(inbound.time, "time", lambda: 1_755_776_096)
+    monkeypatch.setattr(
+        registry_module,
+        "_notify_entity_id",
+        lambda _hass, _entry_id, _subentry_id: "notify.waha_seba",
+    )
+    bus = _Bus()
+    hass = SimpleNamespace(bus=bus, states=SimpleNamespace(get=lambda _id: None))
+    entry = SimpleNamespace(
+        entry_id="entry-one",
+        data={"session": "default", "webhook_secret": "stable-private-key"},
+        subentries={
+            "seba": SimpleNamespace(
+                subentry_id="seba",
+                subentry_type="recipient",
+                data={"recipient": "393331234567"},
+            )
+        },
+    )
+    channel = registry_module.ChannelRegistry(
+        hass, entry, SimpleNamespace(session_name="default"), store=_Store()
+    )
+    await channel.async_start()
+
+    def fail(_event_data, *, context=None):
+        raise RuntimeError("broken command parser")
+
+    manager = inbound.WahaInboundManager(
+        hass,
+        entry,
+        channel,
+        command_registry=SimpleNamespace(publish_from_message=fail),
+    )
+    await manager.async_handle_payload(
+        {
+            "id": "evt-one",
+            "event": "message",
+            "session": "default",
+            "payload": {
+                "id": "false_393331234567@c.us_CMD",
+                "timestamp": 1_755_776_096,
+                "from": "393331234567@c.us",
+                "fromMe": False,
+                "body": "/status",
+                "hasMedia": False,
+            },
+        }
+    )
+    assert [item[1]["type"] for item in bus.events] == ["message.received"]
+    assert manager.accepted_count == 1
 
 
 @pytest.mark.asyncio
